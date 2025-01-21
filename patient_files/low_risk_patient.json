@@ -1,0 +1,17 @@
+{
+    "age": 35,
+    "gender": "female",
+    "sleep_apnea": false,
+    "opioid_dosage": 20.0,
+    "sedative_use": false,
+    "bmi": 24.5,
+    "copd": false,
+    "asa_status": 1,
+    "recent_breathing_rate": 14.0,
+    "current_breathing_rate": 15.0,
+    "heart_rate": 72.0,
+    "breath_amplitude": 8.5,
+    "spo2": 98.0,
+    "etco2": 40.0
+}
+  

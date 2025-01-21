@@ -1,0 +1,17 @@
+{
+    "age": 75,
+    "gender": "male",
+    "sleep_apnea": true,
+    "opioid_dosage": 150.0,
+    "sedative_use": true,
+    "bmi": 38.5,
+    "copd": true,
+    "asa_status": 3,
+    "recent_breathing_rate": 10.0,
+    "current_breathing_rate": 8.0,
+    "heart_rate": 92.0,
+    "breath_amplitude": 4.0,
+    "spo2": 91.0,
+    "etco2": 52.0
+}
+  
