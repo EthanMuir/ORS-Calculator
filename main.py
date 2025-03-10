@@ -1,6 +1,8 @@
 import json
 from typing import Tuple, Dict, Union
 import math
+from risk_classifier import RiskClassifier
+
 
 class CalcClass:
     def calculate_prodigy_score(self, age: int, sex: str, opioid_naive: bool, sdb: bool, chf: bool) -> int:
@@ -47,93 +49,177 @@ class CalcClass:
         
         return score
 
+    def calculate_mews_score(self, heart_rate, breathing_rate, temperature = 36, avpu = "Alert", systolic_bp=120):
+        """
+        Calculate the Modified Early Warning Score (MEWS)
+
+        Parameters:
+        heart_rate (int): Patient's heart rate in beats per minute
+        systolic_bp (int): Patient's systolic blood pressure (default 120 mmHg)
+        temperature (float): Patient's temperature in Celsius
+        avpu (str): Patient's alertness level ("Alert", "Verbal", "Pain", "Unresponsive")
+
+        Returns:
+        int: Total MEWS score
+        """        
+        # Heart rate scoring
+        if heart_rate < 40:
+            hr_score = 2
+        elif 40 <= heart_rate <= 50:
+            hr_score = 1
+        elif 51 <= heart_rate <= 100:
+            hr_score = 0
+        elif 101 <= heart_rate <= 110:
+            hr_score = 1
+        elif 111 <= heart_rate <= 129:
+            hr_score = 2
+        else:
+            hr_score = 3
+
+        # Systolic BP scoring
+        if systolic_bp <= 70:
+            bp_score = 3
+        elif 71 <= systolic_bp <= 80:
+            bp_score = 2
+        elif 81 <= systolic_bp <= 100:
+            bp_score = 1
+        elif 101 <= systolic_bp <= 199:
+            bp_score = 0
+        else:
+            bp_score = 2
+
+        # Temperature scoring
+        if temperature < 35:
+            temp_score = 2
+        elif 35 <= temperature <= 38.4:
+            temp_score = 0
+        else:
+            temp_score = 2
+
+        # AVPU scoring
+        avpu_scores = {
+            "Alert": 0,
+            "Verbal": 1,
+            "Pain": 2,
+            "Unresponsive": 3
+        }
+        avpu_score = avpu_scores.get(avpu, 0)
+
+        # Breathing rate scoring
+        if breathing_rate < 9:
+            breath_score = 2
+        elif 9 <= breathing_rate <= 14:
+            breath_score = 0
+        elif 15 <= breathing_rate <= 20:
+            breath_score = 1
+        elif 21 <= breathing_rate <= 29:
+            breath_score = 2
+        else:
+            breath_score = 3
+
+        # Total MEWS score
+        total_score = hr_score + bp_score + temp_score + avpu_score + breath_score
+
+        return total_score
+
+
     def calculate_ors(
         self,
-        prodigy_score: float,
-        recent_breathing_rate: float,
-        current_breathing_rate: float,
-        heart_rate: float,
-        breath_amplitude: float,
-    ) -> Tuple[float, str]:
+        prodigy_score: int,
+        mews_score: int,
+        classifier
+    ) -> str:
         """Calculate ORS with refined risk assessment."""
-        NORMAL_RANGES = {
-            'breathing_rate': (12, 20),
-            'heart_rate': (60, 100),
-        }
-        
-        def calculate_deviation_score(value: float, normal_range: Tuple[float, float]) -> float:
-            if value < normal_range[0]:
-                deviation = (normal_range[0] - value) / normal_range[0]
-                return deviation * 1.5 if deviation > 0.3 else deviation
-            elif value > normal_range[1]:
-                deviation = (value - normal_range[1]) / normal_range[1]
-                return deviation * 1.5 if deviation > 0.3 else deviation
-            return 0.0
 
         weights = {
-            'prodigy': 0.4,
-            'recent_breathing': 0.25,
-            'current_breathing': 0.25,
-            'heart_rate': 0.1,
+            'prodigy_moderate': 3,
+            'mews_moderate': 8,
+            'theta_moderate': -24,
+            'prodigy_high': 5,
+            'mews_high': 14,
+            'theta_high': -70
         }
         
-        normalized_prodigy = prodigy_score / 39
-        
-        breathing_deviation = calculate_deviation_score(current_breathing_rate, NORMAL_RANGES['breathing_rate'])
-        recent_breathing_deviation = calculate_deviation_score(recent_breathing_rate, NORMAL_RANGES['breathing_rate'])
-        heart_rate_deviation = calculate_deviation_score(heart_rate, NORMAL_RANGES['heart_rate'])
-        
-        ors = (
-            weights['prodigy'] * normalized_prodigy +
-            weights['recent_breathing'] * recent_breathing_deviation +
-            weights['current_breathing'] * breathing_deviation +
-            weights['heart_rate'] * heart_rate_deviation
+        # Moderate Calc
+        ors_moderate = (
+            weights['prodigy_moderate'] * prodigy_score +
+            weights['mews_moderate'] * mews_score +
+            weights['theta_moderate']
         )
         
-        ors = 1 - math.exp(-2.2 * ors)
-        
-        if ors > 0.65:
-            risk_level = "Critical Risk - Immediate Intervention Required"
-        elif ors > 0.45:
-            risk_level = "High Risk - Close Monitoring Required"
-        elif ors > 0.25:
-            risk_level = "Moderate Risk - Regular Monitoring"
-        elif ors > 0.15:
-            risk_level = "Low Risk - Standard Monitoring"
-        else:
-            risk_level = "Minimal Risk - Routine Care"
-            
-        return ors, risk_level
+        # High Calc
+        ors_high = (
+            weights['prodigy_high'] * prodigy_score +
+            weights['mews_high'] * mews_score +
+            weights['theta_high']
+        )
+
+        print(ors_moderate)
+        print(ors_high)
+        # Single prediction
+        result = classifier.predict(mews_score, prodigy_score)
+        print(f"Risk level: {result['risk_name']}")
+        print(f"Probabilities: {result['probabilities']}")
+
+        # return_str = ""
+        # if ors_moderate < 0:
+        #     return_str = "Not at Risk"
+        # else:
+        #     # ors_moderate > 0
+        #     if ors_high < 0:
+        #         return_str = "Moderate Risk"
+        #     else: 
+        #         return_str = "High Risk"
+
+        return result['risk_name']
 
     def load_patient_data(self, file_path: str) -> Dict[str, Union[str, float, bool, int]]:
         """Load patient data from a JSON file."""
         with open(file_path, 'r') as file:
             return json.load(file)
 
+    def test_patient(self, patient_data, classifier):
+        prodigy_score = calc.calculate_prodigy_score(
+            age=patient_data['age'],
+            sex=patient_data['sex'],
+            sdb=patient_data['sdb'],
+            opioid_naive=patient_data['opioid_naive'],
+            chf=patient_data['chf']
+        )
+        
+        mews_score = calc.calculate_mews_score(
+            heart_rate=patient_data['heart_rate'],
+            breathing_rate=patient_data['current_breathing_rate']
+        )
+
+        risk_level = calc.calculate_ors(
+            prodigy_score,
+            mews_score, 
+            classifier
+        )
+        
+        print("\nRisk Assessment Results:")
+        print("-" * 50)
+        print(f"PRODIGY Risk Score: {prodigy_score}/39")
+        print(f"MEWS Risk Score: {mews_score}/6") #based on only hr and br, change if want total
+        print(f"Risk Level: {risk_level}")
+        print("-" * 50)
+
 if __name__ == "__main__":
     calc = CalcClass()
-    file_path = input("Enter the path to the patient data file: ")
-    patient_data = calc.load_patient_data(file_path)
+    classifier = RiskClassifier()
+
+    test_cases = [
+        "patient_files/critical_risk_patient.json",
+        "patient_files/high_risk_patient.json",
+        "patient_files/low_risk_patient.json",
+        "patient_files/moderate_risk_patient.json"
+    ]
+    for path in test_cases:
+        patient_data = calc.load_patient_data(path)
+        print("----------------------------------------")
+        print("Testing patient: " + path)
+        print("----------------------------------------")
+        calc.test_patient(patient_data, classifier)
     
-    prodigy_score = calc.calculate_prodigy_score(
-        age=patient_data['age'],
-        sex=patient_data['sex'],
-        sdb=patient_data['sdb'],
-        opioid_naive=patient_data['opioid_naive'],
-        chf=patient_data['chf']
-    )
     
-    ors, risk_level = calc.calculate_ors(
-        prodigy_score,
-        patient_data['recent_breathing_rate'],
-        patient_data['current_breathing_rate'],
-        patient_data['heart_rate'],
-        patient_data['breath_amplitude'],
-    )
-    
-    print("\nRisk Assessment Results:")
-    print("-" * 50)
-    print(f"PRODIGY Risk Score: {prodigy_score:.2f}39")
-    print(f"Overall Risk Score (ORS): {ors:.3f}")
-    print(f"Risk Level: {risk_level}")
-    print("-" * 50)
