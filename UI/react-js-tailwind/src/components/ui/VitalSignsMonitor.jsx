@@ -2,9 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs.jsx'; // Relative path
 import { Button } from './button.jsx'; // Relative path
 import { Card, CardContent, CardHeader, CardTitle } from './card.jsx'; // Relative path
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Label } from 'recharts';
 
 const VitalSignsMonitor = () => {
+  // Track whether monitoring has actually started
+  const isInitialRun = useRef(true);
+
   // State for storing vital signs data
   const [hrData, setHrData] = useState(() => {
     return Array(100).fill().map((_, i) => ({ value: 0, time: i * 0.1 }));
@@ -15,10 +18,12 @@ const VitalSignsMonitor = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState("NORMAL");
   const [currentTime, setCurrentTime] = useState(0);
+  const [isSimulating, setIsSimulating] = useState(false);
   
   // Animation frame reference
   const animationRef = useRef(null);
   const timeRef = useRef(0);
+  const simulationTimeoutRef = useRef(null);
   
   // Constants for healthy ranges
   const HR_MIN_HEALTHY = 60;
@@ -26,6 +31,30 @@ const VitalSignsMonitor = () => {
   const BR_MIN_HEALTHY = 12;
   const BR_MAX_HEALTHY = 20;
   
+  // Reset function - called whenever we start a new monitoring or simulation
+  const resetMonitor = () => {
+    // Clear the data arrays completely
+  setHrData([]);
+  setBrData([]);
+    
+    // Reset time and status
+    timeRef.current = 0;
+    setCurrentTime(0);
+    setStatus("NORMAL");
+    isInitialRun.current = true;
+    
+    // Clear any ongoing animations or timeouts
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    
+    if (simulationTimeoutRef.current) {
+      clearTimeout(simulationTimeoutRef.current);
+      simulationTimeoutRef.current = null;
+    }
+  };
+
   // Function to generate random vital signs
   const generateRandomVitals = (time) => {
     // Normal values with some variation
@@ -60,15 +89,16 @@ const VitalSignsMonitor = () => {
     const time = timeRef.current;
     const { hr, br } = generateRandomVitals(time);
     
-    setHrData(prevData => {
-      const newData = [...prevData.slice(1), { value: hr, time }];
-      return newData;
-    });
-    
-    setBrData(prevData => {
-      const newData = [...prevData.slice(1), { value: br, time }];
-      return newData;
-    });
+  if (isInitialRun.current) {
+    // First data point - initialize with empty arrays
+    setHrData([{ value: hr, time }]);
+    setBrData([{ value: br, time }]);
+    isInitialRun.current = false;
+  } else {
+    // Add new data points
+    setHrData(prevData => [...prevData, { value: hr, time }]);
+    setBrData(prevData => [...prevData, { value: br, time }]);
+  }
     
     // Update status based on vital signs
     if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
@@ -101,11 +131,15 @@ const VitalSignsMonitor = () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
+      if (simulationTimeoutRef.current) {
+        clearTimeout(simulationTimeoutRef.current);
+      }
     };
   }, [isRunning]);
   
   // Start monitoring
   const startMonitoring = () => {
+    resetMonitor();
     setIsRunning(true);
   };
   
@@ -113,26 +147,36 @@ const VitalSignsMonitor = () => {
   const stopMonitoring = () => {
     setIsRunning(false);
   };
+
+  // Stop simulation
+  const stopSimulation = () => {
+    if (simulationTimeoutRef.current) {
+      clearTimeout(simulationTimeoutRef.current);
+      simulationTimeoutRef.current = null;
+    }
+    setIsSimulating(false);
+  };
   
   // Run healthy simulation
   const runHealthySimulation = () => {
+    resetMonitor();
     stopMonitoring();
+    setIsSimulating(true);
     const simulation = generateHealthySimulation();
     let index = 0;
+    let accumulatedData = { hr: [], br: [] };
     
     const runSimulation = () => {
       if (index < simulation.length) {
         const { hr, br, time } = simulation[index];
         
-        setHrData(prevData => {
-          const newData = [...prevData.slice(1), { value: hr, time }];
-          return newData;
-        });
-        
-        setBrData(prevData => {
-          const newData = [...prevData.slice(1), { value: br, time }];
-          return newData;
-        });
+        // Add to accumulated data
+        accumulatedData.hr.push({ value: hr, time });
+        accumulatedData.br.push({ value: br, time });
+      
+        // Update state with all accumulated data
+        setHrData([...accumulatedData.hr]);
+        setBrData([...accumulatedData.br]);
         
         // Update status
         if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
@@ -144,34 +188,37 @@ const VitalSignsMonitor = () => {
         
         setCurrentTime(time);
         index++;
-        setTimeout(runSimulation, 100);
+        simulationTimeoutRef.current = setTimeout(runSimulation, 100);
+      }else {
+        setIsSimulating(false);
       }
     };
     
     // Reset time reference and start simulation
-    timeRef.current = 0;
     runSimulation();
   };
   
   // Run unhealthy simulation
   const runUnhealthySimulation = () => {
+    resetMonitor();
     stopMonitoring();
+    setIsSimulating(true);
     const simulation = generateUnhealthySimulation();
     let index = 0;
+    let accumulatedData = { hr: [], br: [] };
     
     const runSimulation = () => {
       if (index < simulation.length) {
         const { hr, br, time } = simulation[index];
         
-        setHrData(prevData => {
-          const newData = [...prevData.slice(1), { value: hr, time }];
-          return newData;
-        });
+        // Add to accumulated data
+        accumulatedData.hr.push({ value: hr, time });
+        accumulatedData.br.push({ value: br, time });
         
-        setBrData(prevData => {
-          const newData = [...prevData.slice(1), { value: br, time }];
-          return newData;
-        });
+        // Update state with all accumulated data
+        setHrData([...accumulatedData.hr]);
+        setBrData([...accumulatedData.br]);
+
         
         // Update status
         if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
@@ -183,12 +230,13 @@ const VitalSignsMonitor = () => {
         
         setCurrentTime(time);
         index++;
-        setTimeout(runSimulation, 100);
+        simulationTimeoutRef.current = setTimeout(runSimulation, 100);
+      }else {
+        setIsSimulating(false);
       }
     };
     
     // Reset time reference and start simulation
-    timeRef.current = 0;
     runSimulation();
   };
   
@@ -255,6 +303,13 @@ const VitalSignsMonitor = () => {
                       Declining Patient
                     </Button>
                   </div>
+                  <Button 
+                    variant="outline" 
+                    className={`border-red-500 text-red-500 hover:bg-red-50 w-full ${isSimulating ? '' : 'opacity-50'}`}
+                    onClick={stopSimulation}
+                  >
+                    Stop Simulation
+                  </Button>
                 </TabsContent>
               </Tabs>
             </CardContent>
@@ -280,17 +335,32 @@ const VitalSignsMonitor = () => {
             <CardHeader className="pb-2">
               <CardTitle className="text-xl">Heart Rate</CardTitle>
             </CardHeader>
-            <CardContent className="h-40">
+            <CardContent className="h-60">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={hrData}>
+                <LineChart data={hrData} margin={{ top: 5, right: 20, bottom: 25, left: 25 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis 
                     dataKey="time" 
-                    domain={[Math.max(0, currentTime - 10), Math.max(10, currentTime)]}
+                    domain={hrData.length > 100 ? 
+                      ['dataMin', 'dataMax'] : 
+                      [0, 10]}
                     type="number"
                     tickFormatter={(tick) => Math.max(0, tick).toFixed(0)}
-                  />
-                  <YAxis domain={[40, 120]} />
+                  >
+                    <Label value="Time (s)" position="bottom" offset={10} />
+                  </XAxis>
+                  <YAxis 
+                    domain={[30, 140]} 
+                    ticks={[30, 50, 70, 90, 110, 130]}
+                  >
+                    <Label 
+                      value="Heart Rate (bpm)" 
+                      angle={-90} 
+                      position="insideLeft" 
+                      style={{ textAnchor: 'middle' }}
+                      offset={-10}
+                    />
+                  </YAxis>
                   <Line 
                     type="monotone" 
                     dataKey="value" 
@@ -308,17 +378,32 @@ const VitalSignsMonitor = () => {
             <CardHeader className="pb-2">
               <CardTitle className="text-xl">Breathing Rate</CardTitle>
             </CardHeader>
-            <CardContent className="h-40">
+            <CardContent className="h-60">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={brData}>
+                <LineChart data={brData} margin={{ top: 5, right: 20, bottom: 25, left: 25 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis 
                     dataKey="time" 
-                    domain={[Math.max(0, currentTime - 10), Math.max(10, currentTime)]}
+                    domain={brData.length > 100 ? 
+                      ['dataMin', 'dataMax'] : 
+                      [0, 10]}
                     type="number"
                     tickFormatter={(tick) => Math.max(0, tick).toFixed(0)}
-                  />
-                  <YAxis domain={[5, 25]} />
+                  >
+                    <Label value="Time (s)" position="bottom" offset={10} />
+                  </XAxis>
+                  <YAxis 
+                    domain={[5, 25]} 
+                    ticks={[5, 10, 15, 20, 25]}
+                  >
+                    <Label 
+                      value="Breathing Rate (brpm)" 
+                      angle={-90} 
+                      position="insideLeft" 
+                      style={{ textAnchor: 'middle' }}
+                      offset={-10}
+                    />
+                  </YAxis>
                   <Line 
                     type="monotone" 
                     dataKey="value" 
