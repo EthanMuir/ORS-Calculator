@@ -1,7 +1,7 @@
 import json
 from typing import Tuple, Dict, Union
 import math
-from risk_classifier import RiskClassifier
+from NN.risk_classifier import RiskClassifier
 
 
 class CalcClass:
