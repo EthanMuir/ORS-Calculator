@@ -1,12 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs.jsx'; // Relative path
-import { Button } from './button.jsx'; // Relative path
-import { Card, CardContent, CardHeader, CardTitle } from './card.jsx'; // Relative path
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs.jsx';
+import { Button } from './button.jsx';
+import { Card, CardContent, CardHeader, CardTitle } from './card.jsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Label } from 'recharts';
+import { Settings as SettingsIcon } from 'lucide-react';
+import Settings from './Settings.jsx'; // Import the new Settings component
 
 const VitalSignsMonitor = () => {
   // Track whether monitoring has actually started
   const isInitialRun = useRef(true);
+
+  // Add state for settings view and patient data
+  const [showSettings, setShowSettings] = useState(false);
+  const [patientData, setPatientData] = useState({
+    age: 50,
+    sex: "male",
+    sdb: false,
+    opioid_naive: false,
+    chf: false
+  });
 
   const renderDot = (props) => {
     const { cx, cy, index, dataLength, color } = props;
@@ -54,8 +66,8 @@ const VitalSignsMonitor = () => {
   // Reset function - called whenever we start a new monitoring or simulation
   const resetMonitor = () => {
     // Clear the data arrays completely
-  setHrData([]);
-  setBrData([]);
+    setHrData([]);
+    setBrData([]);
     
     // Reset time and status
     timeRef.current = 0;
@@ -276,9 +288,25 @@ const VitalSignsMonitor = () => {
   const currentHR = hrData[hrData.length-1]?.value.toFixed(1) || 0;
   const currentBR = brData[brData.length-1]?.value.toFixed(1) || 0;
   
+  // If showing settings, render the Settings component
+  if (showSettings) {
+    return <Settings onBack={() => setShowSettings(false)} patientData={patientData} setPatientData={setPatientData} />;
+  }
+  
+  // Otherwise, render the main monitor view
   return (
     <div className="flex flex-col h-screen bg-gray-50 p-4">
-      <h1 className="text-2xl font-bold text-center text-gray-800 mb-4">Vital Signs Monitor</h1>
+      <div className="flex justify-between items-center mb-4">
+        <Button 
+          variant="ghost" 
+          className="p-2" 
+          onClick={() => setShowSettings(true)}
+        >
+          <SettingsIcon className="h-5 w-5 text-gray-600" />
+        </Button>
+        <h1 className="text-2xl font-bold text-center text-gray-800">Vital Signs Monitor</h1>
+        <div className="w-8"></div> {/* Empty div for spacing */}
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow">
         {/* Left column - Controls and Status */}
@@ -363,6 +391,37 @@ const VitalSignsMonitor = () => {
                 <div className="flex justify-between">
                   <span>Breathing Rate:</span>
                   <span className="font-medium">{currentBR} brpm</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          {/* Patient Info Card */}
+          <Card className="shadow-md">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xl">Patient Info</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 text-sm text-gray-600">
+                <div className="flex justify-between">
+                  <span>Age:</span>
+                  <span className="font-medium">{patientData.age}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Sex:</span>
+                  <span className="font-medium capitalize">{patientData.sex}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>SDB:</span>
+                  <span className="font-medium">{patientData.sdb ? "Yes" : "No"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Opioid Naive:</span>
+                  <span className="font-medium">{patientData.opioid_naive ? "Yes" : "No"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>CHF:</span>
+                  <span className="font-medium">{patientData.chf ? "Yes" : "No"}</span>
                 </div>
               </div>
             </CardContent>
