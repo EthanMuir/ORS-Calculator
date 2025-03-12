@@ -8,6 +8,25 @@ const VitalSignsMonitor = () => {
   // Track whether monitoring has actually started
   const isInitialRun = useRef(true);
 
+  const renderDot = (props) => {
+    const { cx, cy, index, dataLength, color } = props;
+    
+    // Only show dot for the last point
+    if (index === dataLength - 1) {
+      return (
+        <circle 
+          cx={cx} 
+          cy={cy} 
+          r={2.5} 
+          fill={color}  
+          stroke={color}
+          strokeWidth={2} 
+        />
+      );
+    }
+    return null;
+  };
+
   // State for storing vital signs data
   const [hrData, setHrData] = useState(() => {
     return Array(100).fill().map((_, i) => ({ value: 0, time: i * 0.1 }));
@@ -24,6 +43,7 @@ const VitalSignsMonitor = () => {
   const animationRef = useRef(null);
   const timeRef = useRef(0);
   const simulationTimeoutRef = useRef(null);
+  const lastUpdateTimeRef = useRef(0); // Track when monitoring started
   
   // Constants for healthy ranges
   const HR_MIN_HEALTHY = 60;
@@ -85,20 +105,28 @@ const VitalSignsMonitor = () => {
   
   // Function to update data in real-time
   const updateData = () => {
-    timeRef.current += 1;
-    const time = timeRef.current;
+    const now = Date.now();
+    const elapsedSinceStart = now - lastUpdateTimeRef.current;
+    
+    // Calculate time in seconds (accurate to real-world time)
+    const realTimeSeconds = elapsedSinceStart / 1000;
+    
+    // Use the real-time value for x-axis
+    const time = realTimeSeconds;
+    
+    // Generate new vital signs data
     const { hr, br } = generateRandomVitals(time);
     
-  if (isInitialRun.current) {
-    // First data point - initialize with empty arrays
-    setHrData([{ value: hr, time }]);
-    setBrData([{ value: br, time }]);
-    isInitialRun.current = false;
-  } else {
-    // Add new data points
-    setHrData(prevData => [...prevData, { value: hr, time }]);
-    setBrData(prevData => [...prevData, { value: br, time }]);
-  }
+    if (isInitialRun.current) {
+      // First data point - initialize with empty arrays
+      setHrData([{ value: hr, time }]);
+      setBrData([{ value: br, time }]);
+      isInitialRun.current = false;
+    } else {
+      // Add new data points
+      setHrData(prevData => [...prevData, { value: hr, time }]);
+      setBrData(prevData => [...prevData, { value: br, time }]);
+    }
     
     // Update status based on vital signs
     if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
@@ -109,30 +137,30 @@ const VitalSignsMonitor = () => {
     }
     
     setCurrentTime(time);
-  };
-  
-  // Animation loop
-  const animationLoop = () => {
-    updateData();
+    
+    // Schedule the next update if still running
     if (isRunning) {
-      animationRef.current = requestAnimationFrame(animationLoop);
+      // Use the same delay as in simulation (100ms)
+      simulationTimeoutRef.current = setTimeout(updateData, 100);
     }
   };
   
   // Effect to handle animation starting/stopping
   useEffect(() => {
     if (isRunning) {
-      animationRef.current = requestAnimationFrame(animationLoop);
-    } else if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
+      // Start the timeout-based update loop
+      simulationTimeoutRef.current = setTimeout(updateData, 100);
+    } else if (simulationTimeoutRef.current) {
+      // Clear timeout when stopping
+      clearTimeout(simulationTimeoutRef.current);
+      simulationTimeoutRef.current = null;
     }
     
     return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
+      // Cleanup function
       if (simulationTimeoutRef.current) {
         clearTimeout(simulationTimeoutRef.current);
+        simulationTimeoutRef.current = null;
       }
     };
   }, [isRunning]);
@@ -140,6 +168,7 @@ const VitalSignsMonitor = () => {
   // Start monitoring
   const startMonitoring = () => {
     resetMonitor();
+    lastUpdateTimeRef.current = Date.now(); // Set the start time
     setIsRunning(true);
   };
   
@@ -252,8 +281,9 @@ const VitalSignsMonitor = () => {
       <h1 className="text-2xl font-bold text-center text-gray-800 mb-4">Vital Signs Monitor</h1>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow">
-        {/* Left column - Controls */}
+        {/* Left column - Controls and Status */}
         <div className="flex flex-col gap-4">
+          {/* Controls Card */}
           <Card className="shadow-md">
             <CardHeader className="pb-2">
               <CardTitle className="text-xl">Controls</CardTitle>
@@ -315,27 +345,38 @@ const VitalSignsMonitor = () => {
             </CardContent>
           </Card>
           
-          <Card className="shadow-md mt-auto">
-            <CardContent className="pt-6">
+          {/* Status Card */}
+          <Card className="shadow-md">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xl">Status</CardTitle>
+            </CardHeader>
+            <CardContent>
               <div className="flex justify-between items-center">
-                <span className="font-semibold text-lg">Status:</span>
+                <span className="font-semibold text-lg">Patient Status:</span>
                 <span className={`font-bold text-xl ${statusColor}`}>{status}</span>
               </div>
-              <div className="mt-2 text-sm text-gray-500">
-                <div>Heart Rate: {currentHR} bpm</div>
-                <div>Breathing Rate: {currentBR} brpm</div>
+              <div className="mt-4 text-sm text-gray-500">
+                <div className="flex justify-between mb-2">
+                  <span>Heart Rate:</span>
+                  <span className="font-medium">{currentHR} bpm</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Breathing Rate:</span>
+                  <span className="font-medium">{currentBR} brpm</span>
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
         
-        {/* Right column - Graphs */}
-        <div className="flex flex-col gap-4">
-          <Card className="shadow-md">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xl">Heart Rate</CardTitle>
-            </CardHeader>
-            <CardContent className="h-60">
+        {/* Right column - Combined Graphs */}
+        <Card className="shadow-md">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xl">Vital Signs Monitoring</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {/* Heart Rate Graph */}
+            <div className="h-60">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={hrData} margin={{ top: 5, right: 20, bottom: 25, left: 25 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -366,19 +407,15 @@ const VitalSignsMonitor = () => {
                     dataKey="value" 
                     stroke="#007AFF" 
                     strokeWidth={2}
-                    dot={false}
+                    dot={(props) => renderDot({...props, dataLength: hrData.length, color: "#007AFF"})}
                     isAnimationActive={false}
                   />
                 </LineChart>
               </ResponsiveContainer>
-            </CardContent>
-          </Card>
-          
-          <Card className="shadow-md">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xl">Breathing Rate</CardTitle>
-            </CardHeader>
-            <CardContent className="h-60">
+            </div>
+            
+            {/* Breathing Rate Graph */}
+            <div className="h-60">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={brData} margin={{ top: 5, right: 20, bottom: 25, left: 25 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -409,14 +446,14 @@ const VitalSignsMonitor = () => {
                     dataKey="value" 
                     stroke="#5AC8FA" 
                     strokeWidth={2}
-                    dot={false}
+                    dot={(props) => renderDot({...props, dataLength: brData.length, color: "#5AC8FA"})}
                     isAnimationActive={false}
                   />
                 </LineChart>
               </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
