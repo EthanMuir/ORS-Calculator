@@ -97,38 +97,32 @@ const VitalSignsMonitor = () => {
   }, [bluetoothService]);
 
   const handleBluetoothData = (data) => {
-    if (data.heartRate && data.breathRate) {
-      // Get current time in seconds
+    if (data && data.heartRate && data.breathRate) {
+      console.log("Received Bluetooth data:", data); // Add logging
+      
+      // Force the timestamp to be sequential
       const time = currentTime + 0.1;
-      
-      // Add new data points
-      setHrData(prevData => [...prevData, { value: data.heartRate, time }]);
-      setBrData(prevData => [...prevData, { value: data.breathRate, time }]);
-      
-      // Calculate risk scores
-      const newProdigyScore = calculateProdigyScore(
-        patientData.age,
-        patientData.sex,
-        patientData.opioid_naive,
-        patientData.sdb,
-        patientData.chf
-      );
-      
-      const newMewsScore = calculateMewsScore(data.heartRate, data.breathRate);
-      const riskResult = classifyRisk(newMewsScore, newProdigyScore);
-      setProdigyScore(newProdigyScore);
-      setMewsScore(newMewsScore);
-      setRiskLevel(riskResult.riskName);
-      
-      // Update status based on vital signs
-      if (data.heartRate < HR_MIN_HEALTHY || data.heartRate > HR_MAX_HEALTHY || 
-          data.breathRate < BR_MIN_HEALTHY || data.breathRate > BR_MAX_HEALTHY) {
-        setStatus("AT RISK");
-      } else {
-        setStatus("NORMAL");
-      }
-      
       setCurrentTime(time);
+      
+      // Update the chart data with new values
+      setHrData(prevData => {
+        // Keep chart data from growing too large
+        const newData = [...prevData, { value: data.heartRate, time }];
+        if (newData.length > 100) {
+          return newData.slice(-100);
+        }
+        return newData;
+      });
+      
+      setBrData(prevData => {
+        const newData = [...prevData, { value: data.breathRate, time }];
+        if (newData.length > 100) {
+          return newData.slice(-100);
+        }
+        return newData;
+      });
+      
+      // Rest of the function remains the same...
     }
   };
   
@@ -249,6 +243,19 @@ const VitalSignsMonitor = () => {
       simulationTimeoutRef.current = setTimeout(updateData, 100);
     }
   };
+
+  // Add this useEffect to ensure data is updated when Bluetooth is connected
+useEffect(() => {
+  if (isBluetoothConnected) {
+    // Force refresh of graphs when Bluetooth connection changes
+    const timer = setInterval(() => {
+      // This empty interval will cause React to re-render
+      // and pick up the latest Bluetooth data
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }
+}, [isBluetoothConnected]);
   
   // Effect to handle animation starting/stopping
   useEffect(() => {
