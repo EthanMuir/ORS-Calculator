@@ -13,7 +13,6 @@ import ApiService from '../../utils/ApiService';
 // Create a single instance of ApiService to share across the app
 const sharedApiService = new ApiService('http://localhost:5030');  // Updated to use correct port
 
-
 const VitalSignsMonitor = () => {
   // Track whether monitoring has actually started
   const isInitialRun = useRef(true);  
@@ -63,8 +62,10 @@ const VitalSignsMonitor = () => {
   const [status, setStatus] = useState("NORMAL");
   const [currentTime, setCurrentTime] = useState(0);
   const [isSimulating, setIsSimulating] = useState(false);
-
+  const [isApiMonitoring, setIsApiMonitoring] = useState(false);
+  const [isProcessingApiData, setIsProcessingApiData] = useState(false);
   const [prodigyScore, setProdigyScore] = useState(0);
+  const shouldProcessApiDataRef = useRef(false);
   const [mewsScore, setMewsScore] = useState(0);
   const [riskLevel, setRiskLevel] = useState("Not Assessed");
   
@@ -98,9 +99,12 @@ const VitalSignsMonitor = () => {
   }, [apiService]);
 
   const handleApiData = (data) => {
+    if (!shouldProcessApiDataRef.current) return;
     if (data.heartRate && data.breathRate) {
-      // Get current time in seconds
-      const time = currentTime + 0.1;
+      // Get current time based on elapsed real time since monitoring started
+      const now = Date.now();
+      const elapsedSinceStart = now - lastUpdateTimeRef.current;
+      const time = elapsedSinceStart / 1000; // Convert to seconds
       
       // Add new data points
       setHrData(prevData => {
@@ -267,8 +271,10 @@ const VitalSignsMonitor = () => {
   // Effect to handle animation starting/stopping
   useEffect(() => {
     if (isRunning) {
-      // Start the timeout-based update loop
-      simulationTimeoutRef.current = setTimeout(updateData, 100);
+      // Only start the random data generation if API is NOT connected
+      if (!isApiConnected) {
+        simulationTimeoutRef.current = setTimeout(updateData, 100);
+      }
     } else if (simulationTimeoutRef.current) {
       // Clear timeout when stopping
       clearTimeout(simulationTimeoutRef.current);
@@ -282,18 +288,24 @@ const VitalSignsMonitor = () => {
         simulationTimeoutRef.current = null;
       }
     };
-  }, [isRunning]);
+  }, [isRunning, isApiConnected]); // Added isApiConnected as a dependency
   
   // Start monitoring
   const startMonitoring = () => {
     resetMonitor();
     lastUpdateTimeRef.current = Date.now(); // Set the start time
-    setIsRunning(true);
+    setIsRunning(true); // Always set isRunning to true when monitoring starts
+    shouldProcessApiDataRef.current = true; // Start processing API data
+    if (isApiConnected) {
+      setIsApiMonitoring(true);
+    }
   };
   
   // Stop monitoring
   const stopMonitoring = () => {
     setIsRunning(false);
+    setIsApiMonitoring(false);
+    shouldProcessApiDataRef.current = false; // Stop processing API data
   };
 
   // Stop simulation
@@ -480,7 +492,7 @@ const VitalSignsMonitor = () => {
                       variant="outline" 
                       className="border-red-500 text-red-500 hover:bg-red-50"
                       onClick={stopMonitoring}
-                      disabled={!isRunning}
+                      disabled={!isRunning && !isApiMonitoring}
                     >
                       Stop
                     </Button>
@@ -600,9 +612,7 @@ const VitalSignsMonitor = () => {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis 
                     dataKey="time" 
-                    domain={hrData.length > 100 ? 
-                      ['dataMin', 'dataMax'] : 
-                      [0, 10]}
+                    domain={['dataMin', Math.max(10, hrData.length > 0 ? hrData[hrData.length-1].time : 10)]}
                     type="number"
                     tickFormatter={(tick) => Math.max(0, tick).toFixed(0)}
                   >
@@ -639,9 +649,7 @@ const VitalSignsMonitor = () => {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis 
                     dataKey="time" 
-                    domain={brData.length > 100 ? 
-                      ['dataMin', 'dataMax'] : 
-                      [0, 10]}
+                    domain={['dataMin', Math.max(10, brData.length > 0 ? brData[brData.length-1].time : 10)]}
                     type="number"
                     tickFormatter={(tick) => Math.max(0, tick).toFixed(0)}
                   >
