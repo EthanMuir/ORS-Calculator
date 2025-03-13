@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+// src/components/ui/Settings.jsx - Updated version with Bluetooth Connection
+
+import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs.jsx';
 import { Button } from './button.jsx';
 import { Card, CardContent, CardHeader, CardTitle } from './card.jsx';
 import { ArrowLeft } from 'lucide-react';
+import BluetoothConnect from './BluetoothConnect.jsx';
+import BluetoothService from '../../utils/BluetoothService';
 
-const Settings = ({ onBack, patientData, setPatientData }) => {
+const Settings = ({ onBack, patientData, setPatientData, bluetoothService }) => {
   // Local state to track form changes before saving
   const [localPatientData, setLocalPatientData] = useState(patientData || {
     age: 50,
@@ -13,6 +17,15 @@ const Settings = ({ onBack, patientData, setPatientData }) => {
     opioid_naive: false,
     chf: false
   });
+  
+  // Bluetooth state
+  const [isBluetoothConnected, setIsBluetoothConnected] = useState(false);
+  const [btService] = useState(bluetoothService || new BluetoothService());
+
+  // Check bluetooth status on component mount
+  useEffect(() => {
+    setIsBluetoothConnected(btService.isConnected);
+  }, [btService]);
 
   // Handle input changes
   const handleInputChange = (e) => {
@@ -30,6 +43,27 @@ const Settings = ({ onBack, patientData, setPatientData }) => {
     setPatientData(localPatientData);
     // Optional: Show a success message
     alert("Patient data saved successfully");
+  };
+  
+  // Connect to Bluetooth device
+  const connectBluetooth = async () => {
+    try {
+      const connected = await btService.connect();
+      if (connected) {
+        setIsBluetoothConnected(true);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Error connecting to Bluetooth:", error);
+      return false;
+    }
+  };
+  
+  // Disconnect from Bluetooth device
+  const disconnectBluetooth = async () => {
+    await btService.disconnect();
+    setIsBluetoothConnected(false);
   };
 
   return (
@@ -51,9 +85,10 @@ const Settings = ({ onBack, patientData, setPatientData }) => {
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="patient" className="w-full">
-            <TabsList className="grid grid-cols-2 mb-6">
+            <TabsList className="grid grid-cols-3 mb-6">
               <TabsTrigger value="patient">Patient Data</TabsTrigger>
-              <TabsTrigger value="connection">Connection</TabsTrigger>
+              <TabsTrigger value="connection">Bluetooth</TabsTrigger>
+              <TabsTrigger value="system">System</TabsTrigger>
             </TabsList>
             
             <TabsContent value="patient" className="space-y-6">
@@ -165,9 +200,70 @@ const Settings = ({ onBack, patientData, setPatientData }) => {
               </div>
             </TabsContent>
             
-            <TabsContent value="connection" className="space-y-4">
-              <div className="p-8 text-center text-gray-500">
-                <p>Connection settings will be available in future updates.</p>
+            <TabsContent value="connection" className="space-y-6">
+              <div className="space-y-4">
+                <div className="p-4 bg-gray-50 rounded-md border border-gray-200">
+                  <h3 className="text-md font-medium text-gray-800 mb-2">Bluetooth Sensor Connection</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Connect your OIRD sensor via Bluetooth to start receiving heart rate and breathing rate data.
+                  </p>
+                  <BluetoothConnect 
+                    onConnect={connectBluetooth}
+                    onDisconnect={disconnectBluetooth}
+                    isConnected={isBluetoothConnected}
+                  />
+                </div>
+                
+                {isBluetoothConnected && (
+                  <div className="p-4 bg-green-50 rounded-md border border-green-200">
+                    <h3 className="text-md font-medium text-green-800 mb-2">Sensor Status</h3>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">Device:</span>
+                        <span className="text-sm font-medium">OIRD Sensor</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">Signal Strength:</span>
+                        <span className="text-sm font-medium">Strong</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">Battery:</span>
+                        <span className="text-sm font-medium">85%</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="system" className="space-y-4">
+              <div className="p-4 bg-gray-50 rounded-md border border-gray-200">
+                <h3 className="text-md font-medium text-gray-800 mb-2">System Information</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Version:</span>
+                    <span className="text-sm font-medium">1.0.0</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Platform:</span>
+                    <span className="text-sm font-medium">Web</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Bluetooth API:</span>
+                    <span className="text-sm font-medium">
+                      {navigator.bluetooth ? 'Supported' : 'Not Supported'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex flex-col gap-2 mt-4">
+                <Button className="w-full bg-gray-100 text-gray-800 hover:bg-gray-200">
+                  Check for Updates
+                </Button>
+                <Button className="w-full bg-red-50 text-red-600 hover:bg-red-100">
+                  Factory Reset
+                </Button>
               </div>
             </TabsContent>
           </Tabs>
