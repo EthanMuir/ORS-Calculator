@@ -4,11 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs.jsx';
 import { Button } from './button.jsx';
 import { Card, CardContent, CardHeader, CardTitle } from './card.jsx';
-import { ArrowLeft } from 'lucide-react';
-import BluetoothConnect from './BluetoothConnect.jsx';
-import BluetoothService from '../../utils/BluetoothService';
+import { ArrowLeft, Wifi, WifiOff, AlertCircle } from 'lucide-react';
+import ApiConnect from './ApiConnect.jsx';
 
-const Settings = ({ onBack, patientData, setPatientData, bluetoothService }) => {
+const Settings = ({ onBack, patientData, setPatientData, apiService }) => {
   // Local state to track form changes before saving
   const [localPatientData, setLocalPatientData] = useState(patientData || {
     age: 50,
@@ -18,14 +17,22 @@ const Settings = ({ onBack, patientData, setPatientData, bluetoothService }) => 
     chf: false
   });
   
-  // Bluetooth state
-  const [isBluetoothConnected, setIsBluetoothConnected] = useState(false);
-  const [btService] = useState(bluetoothService || new BluetoothService());
-
-  // Check bluetooth status on component mount
+  // API connection state
+  const [isApiConnected, setIsApiConnected] = useState(false);
+  
+  // Check API status on component mount
   useEffect(() => {
-    setIsBluetoothConnected(btService.isConnected);
-  }, [btService]);
+    setIsApiConnected(apiService.isConnected);
+    
+    // Set up interval to check connection status
+    const intervalId = setInterval(() => {
+      setIsApiConnected(apiService.isConnected);
+    }, 1000);
+    
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [apiService]);
 
   // Handle input changes
   const handleInputChange = (e) => {
@@ -45,25 +52,29 @@ const Settings = ({ onBack, patientData, setPatientData, bluetoothService }) => 
     alert("Patient data saved successfully");
   };
   
-  // Connect to Bluetooth device
-  const connectBluetooth = async () => {
+  // Connect to API server
+  const connectApi = async (serverUrl) => {
     try {
-      const connected = await btService.connect();
+      // Update the API URL if provided
+      if (serverUrl) {
+        apiService.setApiUrl(serverUrl);
+      }
+      
+      const connected = await apiService.connect();
       if (connected) {
-        setIsBluetoothConnected(true);
+        setIsApiConnected(true);
         return true;
       }
       return false;
     } catch (error) {
-      console.error("Error connecting to Bluetooth:", error);
+      console.error("Error connecting to API:", error);
       return false;
     }
   };
-  
-  // Disconnect from Bluetooth device
-  const disconnectBluetooth = async () => {
-    await btService.disconnect();
-    setIsBluetoothConnected(false);
+  // Disconnect from API server
+  const disconnectApi = async () => {
+    await apiService.disconnect();
+    setIsApiConnected(false);
   };
 
   return (
@@ -87,7 +98,7 @@ const Settings = ({ onBack, patientData, setPatientData, bluetoothService }) => 
           <Tabs defaultValue="patient" className="w-full">
             <TabsList className="grid grid-cols-3 mb-6">
               <TabsTrigger value="patient">Patient Data</TabsTrigger>
-              <TabsTrigger value="connection">Bluetooth</TabsTrigger>
+              <TabsTrigger value="connection">Server</TabsTrigger>
               <TabsTrigger value="system">System</TabsTrigger>
             </TabsList>
             
@@ -203,32 +214,32 @@ const Settings = ({ onBack, patientData, setPatientData, bluetoothService }) => 
             <TabsContent value="connection" className="space-y-6">
               <div className="space-y-4">
                 <div className="p-4 bg-gray-50 rounded-md border border-gray-200">
-                  <h3 className="text-md font-medium text-gray-800 mb-2">Bluetooth Sensor Connection</h3>
+                  <h3 className="text-md font-medium text-gray-800 mb-2">Server Connection</h3>
                   <p className="text-sm text-gray-600 mb-4">
-                    Connect your OIRD sensor via Bluetooth to start receiving heart rate and breathing rate data.
+                    Connect to the OIRD server to receive heart rate and breathing rate data.
                   </p>
-                  <BluetoothConnect 
-                    onConnect={connectBluetooth}
-                    onDisconnect={disconnectBluetooth}
-                    isConnected={isBluetoothConnected}
+                  <ApiConnect 
+                    onConnect={connectApi}
+                    onDisconnect={disconnectApi}
+                    isConnected={isApiConnected}
                   />
                 </div>
                 
-                {isBluetoothConnected && (
+                {isApiConnected && (
                   <div className="p-4 bg-green-50 rounded-md border border-green-200">
-                    <h3 className="text-md font-medium text-green-800 mb-2">Sensor Status</h3>
+                    <h3 className="text-md font-medium text-green-800 mb-2">Server Status</h3>
                     <div className="space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Device:</span>
-                        <span className="text-sm font-medium">OIRD Sensor</span>
+                        <span className="text-sm text-gray-600">Server:</span>
+                        <span className="text-sm font-medium">OIRD Server</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Signal Strength:</span>
-                        <span className="text-sm font-medium">Strong</span>
+                        <span className="text-sm text-gray-600">Connection:</span>
+                        <span className="text-sm font-medium">Active</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Battery:</span>
-                        <span className="text-sm font-medium">85%</span>
+                        <span className="text-sm text-gray-600">Status:</span>
+                        <span className="text-sm font-medium">Receiving Data</span>
                       </div>
                     </div>
                   </div>

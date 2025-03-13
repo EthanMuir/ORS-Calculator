@@ -3,24 +3,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs.jsx';
 import { Button } from './button.jsx';
 import { Card, CardContent, CardHeader, CardTitle } from './card.jsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Label } from 'recharts';
-import { Settings as SettingsIcon, Bluetooth } from 'lucide-react';  // Add Bluetooth icon import
+import { Settings as SettingsIcon, Wifi } from 'lucide-react';
 import Settings from './Settings.jsx';
 import { calculateProdigyScore, calculateMewsScore, classifyRisk } from '../../utils/RiskCalculator';
 import RiskStatus from './RiskStatus.jsx';
-import BluetoothService from '../../utils/BluetoothService';
+import ApiService from '../../utils/ApiService';
 
 // Create a single instance of BluetoothService to share across the app
-const sharedBluetoothService = new BluetoothService();
+// Create a single instance of ApiService to share across the app
+const sharedApiService = new ApiService('http://localhost:5030');  // Updated to use correct port
+
 
 const VitalSignsMonitor = () => {
   // Track whether monitoring has actually started
-  const isInitialRun = useRef(true);
-
-  // Use the shared service instance instead of creating a new one
-  const bluetoothService = sharedBluetoothService;
+  const isInitialRun = useRef(true);  
+  // Use the shared API service instead of Bluetooth
+  const apiService = sharedApiService;
   
-  // Add state to track Bluetooth connection status
-  const [isBluetoothConnected, setIsBluetoothConnected] = useState(bluetoothService.isConnected);
+  // Add state to track API connection status
+  const [isApiConnected, setIsApiConnected] = useState(apiService.isConnected);
 
   // Add state for settings view and patient data
   const [showSettings, setShowSettings] = useState(false);
@@ -79,10 +80,10 @@ const VitalSignsMonitor = () => {
   const BR_MIN_HEALTHY = 12;
   const BR_MAX_HEALTHY = 20;
 
-  // Update Bluetooth connection status periodically
+  // Update API connection status periodically
   useEffect(() => {
     const checkConnectionStatus = () => {
-      setIsBluetoothConnected(bluetoothService.isConnected);
+      setIsApiConnected(apiService.isConnected);
     };
     
     // Check connection status initially
@@ -94,19 +95,15 @@ const VitalSignsMonitor = () => {
     return () => {
       clearInterval(intervalId);
     };
-  }, [bluetoothService]);
+  }, [apiService]);
 
-  const handleBluetoothData = (data) => {
-    if (data && data.heartRate && data.breathRate) {
-      console.log("Received Bluetooth data:", data); // Add logging
-      
-      // Force the timestamp to be sequential
+  const handleApiData = (data) => {
+    if (data.heartRate && data.breathRate) {
+      // Get current time in seconds
       const time = currentTime + 0.1;
-      setCurrentTime(time);
       
-      // Update the chart data with new values
+      // Add new data points
       setHrData(prevData => {
-        // Keep chart data from growing too large
         const newData = [...prevData, { value: data.heartRate, time }];
         if (newData.length > 100) {
           return newData.slice(-100);
@@ -122,17 +119,40 @@ const VitalSignsMonitor = () => {
         return newData;
       });
       
-      // Rest of the function remains the same...
+      // Calculate risk scores
+      const newProdigyScore = calculateProdigyScore(
+        patientData.age,
+        patientData.sex,
+        patientData.opioid_naive,
+        patientData.sdb,
+        patientData.chf
+      );
+      
+      const newMewsScore = calculateMewsScore(data.heartRate, data.breathRate);
+      const riskResult = classifyRisk(newMewsScore, newProdigyScore);
+      setProdigyScore(newProdigyScore);
+      setMewsScore(newMewsScore);
+      setRiskLevel(riskResult.riskName);
+      
+      // Update status based on vital signs
+      if (data.heartRate < HR_MIN_HEALTHY || data.heartRate > HR_MAX_HEALTHY || 
+          data.breathRate < BR_MIN_HEALTHY || data.breathRate > BR_MAX_HEALTHY) {
+        setStatus("AT RISK");
+      } else {
+        setStatus("NORMAL");
+      }
+      
+      setCurrentTime(time);
     }
   };
   
-  // Set up bluetooth callback when component mounts
+  // Set up API callback when component mounts
   useEffect(() => {
-    bluetoothService.setDataReceivedCallback(handleBluetoothData);
+    apiService.setDataReceivedCallback(handleApiData);
     
     return () => {
       // Cleanup on unmount
-      bluetoothService.disconnect();
+      apiService.disconnect();
     };
   }, []);
   
@@ -244,19 +264,6 @@ const VitalSignsMonitor = () => {
     }
   };
 
-  // Add this useEffect to ensure data is updated when Bluetooth is connected
-useEffect(() => {
-  if (isBluetoothConnected) {
-    // Force refresh of graphs when Bluetooth connection changes
-    const timer = setInterval(() => {
-      // This empty interval will cause React to re-render
-      // and pick up the latest Bluetooth data
-    }, 1000);
-    
-    return () => clearInterval(timer);
-  }
-}, [isBluetoothConnected]);
-  
   // Effect to handle animation starting/stopping
   useEffect(() => {
     if (isRunning) {
@@ -424,7 +431,7 @@ useEffect(() => {
         onBack={() => setShowSettings(false)} 
         patientData={patientData} 
         setPatientData={setPatientData} 
-        bluetoothService={bluetoothService}
+        apiService={apiService}  // Pass apiService instead of bluetoothService
       />
     );
   }
@@ -507,10 +514,9 @@ useEffect(() => {
                 </TabsContent>
               </Tabs>
               
-              {/* Bluetooth status indicator */}
-              {isBluetoothConnected && (
+              {isApiConnected && (
                 <div className="flex items-center mt-4 text-green-500 text-sm border-t border-gray-100 pt-4">
-                  <Bluetooth className="h-4 w-4 mr-2" />
+                  <Wifi className="h-4 w-4 mr-2" />
                   <span>Sensor Connected</span>
                 </div>
               )}
@@ -539,9 +545,9 @@ useEffect(() => {
                   <span>Breathing Rate:</span>
                   <span className="font-medium">{currentBR} brpm</span>
                 </div>
-                {isBluetoothConnected && (
+                {isApiConnected && (
                   <div className="flex items-center justify-end mt-2 text-green-500 text-xs">
-                    <Bluetooth className="h-3 w-3 mr-1" />
+                    <Wifi className="h-3 w-3 mr-1" />
                     <span>Live data</span>
                   </div>
                 )}
