@@ -35,7 +35,7 @@ def create_model(num_hidden_units=8, num_hidden_layers=1):
     
     return model
 
-def generate_synthetic_data(n_samples=100000):
+def generate_synthetic_data(n_samples=10000):
     """
     Generate synthetic training data based on the given ranges:
     MEWS: 0-2 (low), 3-5 (medium), 6+ (high)
@@ -53,31 +53,43 @@ def generate_synthetic_data(n_samples=100000):
     # Simple rule-based classification for synthetic data
     for i in range(n_samples):
         # Determine MEWS risk
-        if mews[i] <= 2:
+        # Determine MEWS risk
+        if mews[i] <= 1:
             mews_risk = 0  # low
-        elif mews[i] < 5:
+        elif mews[i] <= 3:
             mews_risk = 1  # medium
         else:
             mews_risk = 2  # high
-            
-        # Determine PRODIGY risk
-        if prodigy[i] <= 7:
+
+        # Determine PRODIGY risk with corrected thresholds
+        if prodigy[i] <= 10:
             prodigy_risk = 0  # low
-        elif prodigy[i] <= 13:
+        elif prodigy[i] <= 25:
             prodigy_risk = 1  # medium
         else:
             prodigy_risk = 2  # high
-            
+
         # Combined risk (taking the higher risk level)
         labels[i] = max(mews_risk, prodigy_risk)
 
-        
-        # Optionally make some adjustments to create more complex patterns
-        # For example, if both are medium risk, there's a chance it becomes high risk
+        # Introduce some nuanced adjustments for more complex boundaries
         if mews_risk == 1 and prodigy_risk == 1:
-            if np.random.random() < 0.3:  # 30% chance
+            if np.random.random() < 0.3:  # 30% chance of bumping up to high risk
                 labels[i] = 2
-    
+
+        # Additional condition to shape the decision boundary curves
+        if mews[i] < 3:
+            if np.random.random() * float(prodigy[i])/39 < 0.9:  # 30% chance of bumping up to high risk
+                labels[i] = 0
+            else:
+                labels[i]  = 1
+        if mews[i] == 3 and prodigy[i] > 20:
+            labels[i] = 2
+        if mews[i] == 2 and prodigy[i] > 30:
+            labels[i] = 2
+        if mews[i] == 4 and prodigy[i] < 15:
+            labels[i] = 1
+        
     return np.column_stack((mews, prodigy)), labels
 
 def plot_decision_boundary(model, scaler, X_train, y_train):
