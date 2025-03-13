@@ -39,7 +39,7 @@ const RiskStatus = ({ riskLevel, prodigyScore, mewsScore }) => {
           </div>
           <div className="flex justify-between">
             <span>MEWS Score:</span>
-            <span className="font-medium">{mewsScore}/14</span>
+            <span className="font-medium">{mewsScore}/6</span>
           </div>
         </div>
       </CardContent>

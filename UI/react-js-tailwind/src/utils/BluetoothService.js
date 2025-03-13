@@ -56,7 +56,7 @@ startPolling() {
         
         // Read the advertisement data
         const value = await characteristic.readValue();
-        
+        console.log(value);
         // Parse the data from the advertisement
         if (value.byteLength >= 4) {
           // Extract heart rate (first 2 bytes) and breath rate (next 2 bytes)
@@ -65,6 +65,7 @@ startPolling() {
           
           // Call the callback with the real data
           if (this.onDataReceived) {
+            console.log("HEERERERE");
             this.onDataReceived({
               heartRate: hr,
               breathRate: br,
