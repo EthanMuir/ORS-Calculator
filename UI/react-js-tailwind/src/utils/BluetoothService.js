@@ -11,78 +11,72 @@ class BluetoothService {
       this.lastBr = 0;
     }
   
-    // Connect to a Bluetooth device
     async connect() {
-      try {
-        // Check Web Bluetooth support
-        if (!navigator.bluetooth) {
-          console.error('Web Bluetooth API is not supported in this browser');
+        try {
+          // Force a clean device selection by adding a timestamp to avoid browser caching
+          const randomId = Math.floor(Math.random() * 10000);
+          
+          this.device = await navigator.bluetooth.requestDevice({
+            filters: [
+              { name: "OIRD_Sensor" },
+              // Add optional namePrefix as fallback
+              { namePrefix: "OIRD" }
+            ],
+            // No need for optionalServices if you're not using them yet
+            // This helps simplify the discovery
+          });
+      
+          console.log('Device selected:', this.device.name);
+          
+          this.isConnected = true;
+          this.startPolling();
+          return true;
+        } catch (error) {
+          console.error('Bluetooth connection failed:', error);
+          this.isConnected = false;
           return false;
         }
+      }
   
-        // Request Bluetooth device that advertises with the OIRD name
-        this.device = await navigator.bluetooth.requestDevice({
-          filters: [
-            { namePrefix: 'OIRD' }
-          ],
-          // We don't require any services as we'll poll for manufacturer data
-          optionalServices: []
-        });
+    // Replace with a proper method to handle advertisements
+startPolling() {
+    if (this.interval) {
+      clearInterval(this.interval);
+    }
   
-        console.log('Device selected:', this.device.name);
+    // Listen for advertisements instead of simulating data
+    this.interval = setInterval(async () => {
+      try {
+        if (!this.device) return;
         
-        // Start polling for advertisement data
-        this.isConnected = true;
-        this.startPolling();
-        return true;
-      } catch (error) {
-        console.error('Bluetooth connection failed:', error);
-        this.isConnected = false;
-        return false;
-      }
-    }
-  
-    // Start polling for advertisement data
-    startPolling() {
-      // Clear any existing interval
-      if (this.interval) {
-        clearInterval(this.interval);
-      }
-  
-      // Start a new polling interval (every 500ms)
-      this.interval = setInterval(async () => {
-        try {
-          // Simulate receiving data
-          // In a production app, you would parse the advertisement data
-          // This is simplified for this prototype
-          this.simulateDataReceived();
-        } catch (error) {
-          console.error('Error polling for advertisement data:', error);
+        // Try to read the manufacturer data from the device
+        const server = await this.device.gatt.connect();
+        const service = await server.getPrimaryService('generic_access');
+        const characteristic = await service.getCharacteristic('gap.device_name');
+        
+        // Read the advertisement data
+        const value = await characteristic.readValue();
+        
+        // Parse the data from the advertisement
+        if (value.byteLength >= 4) {
+          // Extract heart rate (first 2 bytes) and breath rate (next 2 bytes)
+          const hr = (value.getUint8(0) + (value.getUint8(1) << 8)) / 10;
+          const br = (value.getUint8(2) + (value.getUint8(3) << 8)) / 10;
+          
+          // Call the callback with the real data
+          if (this.onDataReceived) {
+            this.onDataReceived({
+              heartRate: hr,
+              breathRate: br,
+              timestamp: Date.now()
+            });
+          }
         }
-      }, 500);
-    }
-  
-    // Simulate data reception from the BLE advertisements
-    // In a real implementation, you would parse manufacturer data
-    simulateDataReceived() {
-      // Check if we have a callback
-      if (!this.onDataReceived) return;
-  
-      // Get the timestamp
-      const timestamp = Date.now();
-      
-      // Add some random variation to make it look real
-      this.lastHr = Math.max(50, Math.min(100, this.lastHr + (Math.random() - 0.5) * 5));
-      this.lastBr = Math.max(10, Math.min(25, this.lastBr + (Math.random() - 0.5) * 2));
-      
-      // Call the callback with the data
-      this.onDataReceived({
-        heartRate: this.lastHr,
-        breathRate: this.lastBr,
-        timestamp: timestamp
-      });
-    }
-  
+      } catch (error) {
+        console.error('Error reading advertisement data:', error);
+      }
+    }, 500);
+  }
     // Disconnect from the Bluetooth device
     async disconnect() {
       // Stop polling
