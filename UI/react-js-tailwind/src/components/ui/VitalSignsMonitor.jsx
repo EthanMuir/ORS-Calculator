@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from './card.jsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Label } from 'recharts';
 import { Settings as SettingsIcon } from 'lucide-react';
 import Settings from './Settings.jsx'; // Import the new Settings component
+import { calculateProdigyScore, calculateMewsScore, classifyRisk } from '../../utils/RiskCalculator';
+import RiskStatus from './RiskStatus.jsx';
 
 const VitalSignsMonitor = () => {
   // Track whether monitoring has actually started
@@ -50,6 +52,10 @@ const VitalSignsMonitor = () => {
   const [status, setStatus] = useState("NORMAL");
   const [currentTime, setCurrentTime] = useState(0);
   const [isSimulating, setIsSimulating] = useState(false);
+
+  const [prodigyScore, setProdigyScore] = useState(0);
+  const [mewsScore, setMewsScore] = useState(0);
+  const [riskLevel, setRiskLevel] = useState("Not Assessed");
   
   // Animation frame reference
   const animationRef = useRef(null);
@@ -139,7 +145,21 @@ const VitalSignsMonitor = () => {
       setHrData(prevData => [...prevData, { value: hr, time }]);
       setBrData(prevData => [...prevData, { value: br, time }]);
     }
+
+    const newProdigyScore = calculateProdigyScore(
+      patientData.age,
+      patientData.sex,
+      patientData.opioid_naive,
+      patientData.sdb,
+      patientData.chf
+    );
     
+    const newMewsScore = calculateMewsScore(hr, br);
+    const riskResult = classifyRisk(newMewsScore, newProdigyScore);
+    setProdigyScore(newProdigyScore);
+    setMewsScore(newMewsScore);
+    setRiskLevel(riskResult.riskName);
+
     // Update status based on vital signs
     if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
         br < BR_MIN_HEALTHY || br > BR_MAX_HEALTHY) {
@@ -218,7 +238,22 @@ const VitalSignsMonitor = () => {
         // Update state with all accumulated data
         setHrData([...accumulatedData.hr]);
         setBrData([...accumulatedData.br]);
-        
+
+        // Calculate risk scores
+        const newProdigyScore = calculateProdigyScore(
+          patientData.age,
+          patientData.sex,
+          patientData.opioid_naive,
+          patientData.sdb,
+          patientData.chf
+        );
+
+        const newMewsScore = calculateMewsScore(hr, br);
+        const riskResult = classifyRisk(newMewsScore, newProdigyScore);
+        setProdigyScore(newProdigyScore);
+        setMewsScore(newMewsScore);
+        setRiskLevel(riskResult.riskName);
+
         // Update status
         if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
             br < BR_MIN_HEALTHY || br > BR_MAX_HEALTHY) {
@@ -260,7 +295,21 @@ const VitalSignsMonitor = () => {
         setHrData([...accumulatedData.hr]);
         setBrData([...accumulatedData.br]);
 
-        
+        // Calculate risk scores
+        const newProdigyScore = calculateProdigyScore(
+          patientData.age,
+          patientData.sex,
+          patientData.opioid_naive,
+          patientData.sdb,
+          patientData.chf
+        );
+
+        const newMewsScore = calculateMewsScore(hr, br);
+        const riskResult = classifyRisk(newMewsScore, newProdigyScore);
+        setProdigyScore(newProdigyScore);
+        setMewsScore(newMewsScore);
+        setRiskLevel(riskResult.riskName);
+
         // Update status
         if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
             br < BR_MIN_HEALTHY || br > BR_MAX_HEALTHY) {
@@ -373,16 +422,19 @@ const VitalSignsMonitor = () => {
             </CardContent>
           </Card>
           
-          {/* Status Card */}
+          {/* Risk Status Card */}
+          <RiskStatus 
+            riskLevel={riskLevel} 
+            prodigyScore={prodigyScore} 
+            mewsScore={mewsScore} 
+          />
+
+          {/* Vital Signs Card */}
           <Card className="shadow-md">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xl">Status</CardTitle>
+              <CardTitle className="text-xl">Current Vitals</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex justify-between items-center">
-                <span className="font-semibold text-lg">Patient Status:</span>
-                <span className={`font-bold text-xl ${statusColor}`}>{status}</span>
-              </div>
               <div className="mt-4 text-sm text-gray-500">
                 <div className="flex justify-between mb-2">
                   <span>Heart Rate:</span>
