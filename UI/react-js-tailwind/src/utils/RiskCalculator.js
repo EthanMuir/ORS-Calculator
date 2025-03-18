@@ -112,7 +112,6 @@ export const calculateProdigyScore = (age, sex, opioidNaive, sdb, chf) => {
   // Simple risk classifier (placeholder for the Neural Network)
   export const classifyRisk = (mewsScore, prodigyScore) => {
     // This is a simplified version - in a real app you would use TensorFlow.js to load the .h5 model
-    
     // Simple rule-based classification (matching the python logic):
     const weights = {
       prodigyModerate: 3,

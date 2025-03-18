@@ -58,6 +58,9 @@ const VitalSignsMonitor = () => {
   const [brData, setBrData] = useState(() => {
     return Array(100).fill().map((_, i) => ({ value: 0, time: i * 0.1 }));
   });
+  const [riskScoreData, setRiskScoreData] = useState(() => {
+    return Array(100).fill().map((_, i) => ({ value: 0, time: i * 0.1 }));
+  });
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState("NORMAL");
   const [currentTime, setCurrentTime] = useState(0);
@@ -137,6 +140,41 @@ const VitalSignsMonitor = () => {
       setProdigyScore(newProdigyScore);
       setMewsScore(newMewsScore);
       setRiskLevel(riskResult.riskName);
+
+      const instantRiskScore = Math.max(
+        riskResult.probabilities.moderate * 50,
+        riskResult.probabilities.high * 100
+      );
+      
+      // Add to risk data
+      setRiskScoreData(prevData => {
+        // Create new data point
+        const newData = [...prevData, { 
+          value: instantRiskScore,
+          time,
+          averageValue: instantRiskScore // Start with same value, will update in next render
+        }];
+        
+        // Trim to 100 points if needed
+        const trimmedData = newData.length > 100 ? newData.slice(-100) : newData;
+        
+        // Calculate average for the latest point
+        const fiveMinutesAgo = Math.max(0, time - 300);
+        const recentScores = trimmedData
+          .filter(point => point.time >= fiveMinutesAgo && point.time <= time)
+          .map(point => point.value);
+        
+        const avgRiskScore = recentScores.length > 0 
+          ? recentScores.reduce((sum, val) => sum + val, 0) / recentScores.length
+          : instantRiskScore;
+        
+        // Update the average on the last point
+        if (trimmedData.length > 0) {
+          trimmedData[trimmedData.length - 1].averageValue = avgRiskScore;
+        }
+        
+        return trimmedData;
+      });
       
       // Update status based on vital signs
       if (data.heartRate < HR_MIN_HEALTHY || data.heartRate > HR_MAX_HEALTHY || 
@@ -165,6 +203,7 @@ const VitalSignsMonitor = () => {
     // Clear the data arrays completely
     setHrData([]);
     setBrData([]);
+    setRiskScoreData([]);
     
     // Reset time and status
     timeRef.current = 0;
@@ -251,6 +290,41 @@ const VitalSignsMonitor = () => {
     setMewsScore(newMewsScore);
     setRiskLevel(riskResult.riskName);
 
+    const instantRiskScore = Math.max(
+      riskResult.probabilities.moderate * 50,
+      riskResult.probabilities.high * 100
+    );
+    
+    // Add to risk data
+    setRiskScoreData(prevData => {
+      // Create new data point
+      const newData = [...prevData, { 
+        value: instantRiskScore,
+        time,
+        averageValue: instantRiskScore // Start with same value, will update in next render
+      }];
+      
+      // Trim to 100 points if needed
+      const trimmedData = newData.length > 100 ? newData.slice(-100) : newData;
+      
+      // Calculate average for the latest point
+      const fiveMinutesAgo = Math.max(0, time - 300);
+      const recentScores = trimmedData
+        .filter(point => point.time >= fiveMinutesAgo && point.time <= time)
+        .map(point => point.value);
+      
+      const avgRiskScore = recentScores.length > 0 
+        ? recentScores.reduce((sum, val) => sum + val, 0) / recentScores.length
+        : instantRiskScore;
+      
+      // Update the average on the last point
+      if (trimmedData.length > 0) {
+        trimmedData[trimmedData.length - 1].averageValue = avgRiskScore;
+      }
+      
+      return trimmedData;
+    });
+
     // Update status based on vital signs
     if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
         br < BR_MIN_HEALTHY || br > BR_MAX_HEALTHY) {
@@ -267,6 +341,8 @@ const VitalSignsMonitor = () => {
       simulationTimeoutRef.current = setTimeout(updateData, 100);
     }
   };
+
+  
 
   // Effect to handle animation starting/stopping
   useEffect(() => {
@@ -324,7 +400,7 @@ const VitalSignsMonitor = () => {
     setIsSimulating(true);
     const simulation = generateHealthySimulation();
     let index = 0;
-    let accumulatedData = { hr: [], br: [] };
+    let accumulatedData = { hr: [], br: [], risk: [] };
     
     const runSimulation = () => {
       if (index < simulation.length) {
@@ -353,6 +429,41 @@ const VitalSignsMonitor = () => {
         setMewsScore(newMewsScore);
         setRiskLevel(riskResult.riskName);
 
+        const instantRiskScore = Math.max(
+          riskResult.probabilities.moderate * 50,
+          riskResult.probabilities.high * 100
+        );
+        
+        // Add to risk data
+        setRiskScoreData(prevData => {
+          // Create new data point
+          const newData = [...prevData, { 
+            value: instantRiskScore,
+            time,
+            averageValue: instantRiskScore // Start with same value, will update in next render
+          }];
+          
+          // Trim to 100 points if needed
+          const trimmedData = newData.length > 100 ? newData.slice(-100) : newData;
+          
+          // Calculate average for the latest point
+          const fiveMinutesAgo = Math.max(0, time - 300);
+          const recentScores = trimmedData
+            .filter(point => point.time >= fiveMinutesAgo && point.time <= time)
+            .map(point => point.value);
+          
+          const avgRiskScore = recentScores.length > 0 
+            ? recentScores.reduce((sum, val) => sum + val, 0) / recentScores.length
+            : instantRiskScore;
+          
+          // Update the average on the last point
+          if (trimmedData.length > 0) {
+            trimmedData[trimmedData.length - 1].averageValue = avgRiskScore;
+          }
+          
+          return trimmedData;
+        });
+
         // Update status
         if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
             br < BR_MIN_HEALTHY || br > BR_MAX_HEALTHY) {
@@ -380,7 +491,7 @@ const VitalSignsMonitor = () => {
     setIsSimulating(true);
     const simulation = generateUnhealthySimulation();
     let index = 0;
-    let accumulatedData = { hr: [], br: [] };
+    let accumulatedData = { hr: [], br: [], risk: [] };
     
     const runSimulation = () => {
       if (index < simulation.length) {
@@ -409,6 +520,41 @@ const VitalSignsMonitor = () => {
         setMewsScore(newMewsScore);
         setRiskLevel(riskResult.riskName);
 
+        const instantRiskScore = Math.max(
+          riskResult.probabilities.moderate * 50,
+          riskResult.probabilities.high * 100
+        );
+        
+        // Add to risk data
+        setRiskScoreData(prevData => {
+          // Create new data point
+          const newData = [...prevData, { 
+            value: instantRiskScore,
+            time,
+            averageValue: instantRiskScore // Start with same value, will update in next render
+          }];
+          
+          // Trim to 100 points if needed
+          const trimmedData = newData.length > 100 ? newData.slice(-100) : newData;
+          
+          // Calculate average for the latest point
+          const fiveMinutesAgo = Math.max(0, time - 300);
+          const recentScores = trimmedData
+            .filter(point => point.time >= fiveMinutesAgo && point.time <= time)
+            .map(point => point.value);
+          
+          const avgRiskScore = recentScores.length > 0 
+            ? recentScores.reduce((sum, val) => sum + val, 0) / recentScores.length
+            : instantRiskScore;
+          
+          // Update the average on the last point
+          if (trimmedData.length > 0) {
+            trimmedData[trimmedData.length - 1].averageValue = avgRiskScore;
+          }
+          
+          return trimmedData;
+        });
+
         // Update status
         if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
             br < BR_MIN_HEALTHY || br > BR_MAX_HEALTHY) {
@@ -435,6 +581,105 @@ const VitalSignsMonitor = () => {
   // Get current HR and BR values
   const currentHR = hrData[hrData.length-1]?.value.toFixed(1) || 0;
   const currentBR = brData[brData.length-1]?.value.toFixed(1) || 0;
+
+  // Calculate risk score and update state
+  const calculateAndUpdateRiskScore = (hr, br, time) => {
+    // Calculate risk scores
+    const newProdigyScore = calculateProdigyScore(
+      patientData.age,
+      patientData.sex,
+      patientData.opioid_naive,
+      patientData.sdb,
+      patientData.chf
+    );
+    
+    const newMewsScore = calculateMewsScore(hr, br);
+    const riskResult = classifyRisk(newMewsScore, newProdigyScore);
+    
+    // Update state with new scores
+    setProdigyScore(newProdigyScore);
+    setMewsScore(newMewsScore);
+    setRiskLevel(riskResult.riskName);
+
+    // Calculate instant risk score (0-100 scale)
+    const instantRiskScore = Math.max(
+      riskResult.probabilities.moderate * 50,
+      riskResult.probabilities.high * 100
+    );
+    
+    // Update risk score data
+    setRiskScoreData(prevData => {
+      // Create new data point with both instant value and time
+      const newDataPoint = { 
+        value: instantRiskScore,
+        time 
+      };
+      
+      // Add to array
+      const newData = [...prevData, newDataPoint];
+      
+      // Limit to 100 points and calculate average
+      if (newData.length > 100) {
+        return newData.slice(-100).map((point, idx, arr) => {
+          if (idx === arr.length - 1) {
+            // Only calculate average for the latest point to avoid excessive re-renders
+            return {
+              ...point,
+              averageValue: calculateAverageRiskScore(time, newData)
+            };
+          }
+          return point;
+        });
+      }
+      
+      // Calculate average for the new point
+      return newData.map((point, idx, arr) => {
+        if (idx === arr.length - 1) {
+          return {
+            ...point,
+            averageValue: calculateAverageRiskScore(time, newData)
+          };
+        }
+        return point;
+      });
+    });
+  };
+
+  // Improved average calculation with the data array passed as parameter
+  const calculateAverageRiskScore = (currentTime, dataArray) => {
+    // Ensure currentTime is a number
+    const timeVal = Number(currentTime) || 0;
+    
+    // Get data from last 5 minutes (300 seconds)
+    const fiveMinutesAgo = Math.max(0, timeVal - 300);
+    
+    // Use the provided data array or fall back to the state
+    const data = dataArray || riskScoreData;
+    
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      return 0;
+    }
+    
+    // Filter data points from the last 5 minutes
+    const recentScores = data
+      .filter(point => {
+        if (!point) return false;
+        return typeof point.time === 'number' && 
+              point.time >= fiveMinutesAgo && 
+              point.time <= timeVal;
+      })
+      .map(point => Number(point.value) || 0);
+    
+    // If no valid points in time range, return the most recent value if available
+    if (recentScores.length === 0) {
+      const mostRecent = data[data.length - 1];
+      return mostRecent && typeof mostRecent.value === 'number' ? mostRecent.value : 0;
+    }
+    
+    // Calculate and return average
+    return calculateAverage(recentScores);
+  };
+
   
   // If showing settings, render the Settings component
   if (showSettings) {
@@ -473,24 +718,32 @@ const VitalSignsMonitor = () => {
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="run" className="w-full">
-                <TabsList className="grid grid-cols-2 mb-4">
-                  <TabsTrigger value="run">Run</TabsTrigger>
-                  <TabsTrigger value="sim">Sim</TabsTrigger>
+                <TabsList className="grid grid-cols-2 border-b border-gray-200 p-0 mb-4">
+                  <TabsTrigger 
+                    value="run" 
+                    className="inline-flex items-center justify-center whitespace-nowrap rounded-t-md px-4 py-2 text-sm font-medium transition-all border-b-2 border-transparent hover:text-foreground hover:border-gray-300 data-[state=active]:border-blue-500 data-[state=active]:text-foreground data-[state=active]:font-semibold"
+                  >
+                    Run
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="sim"
+                    className="inline-flex items-center justify-center whitespace-nowrap rounded-t-md px-4 py-2 text-sm font-medium transition-all border-b-2 border-transparent hover:text-foreground hover:border-gray-300 data-[state=active]:border-blue-500 data-[state=active]:text-foreground data-[state=active]:font-semibold"
+                  >
+                    Sim
+                  </TabsTrigger>
                 </TabsList>
                 
-                <TabsContent value="run" className="space-y-4">
+                <TabsContent value="run" className="space-y-4 mt-4">
                   <div className="grid grid-cols-2 gap-4">
                     <Button 
-                      variant="default" 
-                      className="bg-blue-500 hover:bg-blue-600 text-white"
+                      className="bg-blue-500 hover:bg-blue-600 text-white py-2.5"
                       onClick={startMonitoring}
                       disabled={isRunning}
                     >
                       Start
                     </Button>
                     <Button 
-                      variant="outline" 
-                      className="border-red-500 text-red-500 hover:bg-red-50"
+                      className="border border-red-300 text-red-500 bg-white hover:bg-red-50 py-2.5"
                       onClick={stopMonitoring}
                       disabled={!isRunning && !isApiMonitoring}
                     >
@@ -499,26 +752,23 @@ const VitalSignsMonitor = () => {
                   </div>
                 </TabsContent>
                 
-                <TabsContent value="sim" className="space-y-4">
+                <TabsContent value="sim" className="space-y-4 mt-4">
                   <div className="grid grid-cols-2 gap-4">
                     <Button 
-                      variant="default" 
-                      className="bg-green-500 hover:bg-green-600 text-white"
+                      className="bg-green-500 hover:bg-green-600 text-white py-2.5"
                       onClick={runHealthySimulation}
                     >
                       Healthy Patient
                     </Button>
                     <Button 
-                      variant="default"
-                      className="bg-amber-500 hover:bg-amber-600 text-white"
+                      className="bg-amber-500 hover:bg-amber-600 text-white py-2.5"
                       onClick={runUnhealthySimulation}
                     >
                       Declining Patient
                     </Button>
                   </div>
                   <Button 
-                    variant="outline" 
-                    className={`border-red-500 text-red-500 hover:bg-red-50 w-full ${isSimulating ? '' : 'opacity-50'}`}
+                    className={`border border-red-300 text-red-500 bg-white hover:bg-red-50 w-full py-2.5 ${isSimulating ? '' : 'opacity-50'}`}
                     onClick={stopSimulation}
                   >
                     Stop Simulation
@@ -533,7 +783,7 @@ const VitalSignsMonitor = () => {
                 </div>
               )}
             </CardContent>
-          </Card>
+</Card>
           
           {/* Risk Status Card */}
           <RiskStatus 
@@ -678,6 +928,56 @@ const VitalSignsMonitor = () => {
                 </LineChart>
               </ResponsiveContainer>
             </div>
+            {/* Risk Score Graph */}
+            <div className="h-60">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={riskScoreData} margin={{ top: 5, right: 20, bottom: 25, left: 25 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis 
+                    dataKey="time" 
+                    domain={['dataMin', Math.max(10, riskScoreData.length > 0 ? riskScoreData[riskScoreData.length-1].time : 10)]}
+                    type="number"
+                    tickFormatter={(tick) => Math.max(0, tick).toFixed(0)}
+                  >
+                    <Label value="Time (s)" position="bottom" offset={10} />
+                  </XAxis>
+                  <YAxis 
+                    domain={[0, 100]} 
+                    ticks={[0, 25, 50, 75, 100]}
+                  >
+                    <Label 
+                      value="Risk Score (%)" 
+                      angle={-90} 
+                      position="insideLeft" 
+                      style={{ textAnchor: 'middle' }}
+                      offset={-10}
+                    />
+                  </YAxis>
+                  {/* Show both instant risk score and average risk score */}
+                  <Line 
+                    type="monotone" 
+                    dataKey="value" 
+                    stroke="#FF9500" 
+                    strokeWidth={1.5}
+                    dot={false}
+                    isAnimationActive={false}
+                    name="Instant Risk"
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="averageValue" 
+                    stroke="#FF3B30" 
+                    strokeWidth={2}
+                    dot={(props) => renderDot({...props, dataLength: riskScoreData.length, color: "#FF3B30"})}
+                    isAnimationActive={false}
+                    name="5-min average Risk"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+</div>
+            
+
+
           </CardContent>
         </Card>
       </div>
