@@ -109,51 +109,186 @@ export const calculateProdigyScore = (age, sex, opioidNaive, sdb, chf) => {
     return totalScore;
   };
   
-  // Simple risk classifier (placeholder for the Neural Network)
-  export const classifyRisk = (mewsScore, prodigyScore) => {
-    // This is a simplified version - in a real app you would use TensorFlow.js to load the .h5 model
-    // Simple rule-based classification (matching the python logic):
-    const weights = {
-      prodigyModerate: 3,
-      mewsModerate: 8,
-      thetaModerate: -24,
-      prodigyHigh: 5,
-      mewsHigh: 14,
-      thetaHigh: -70
-    };
-    
-    // Moderate Calc
-    const orsModerate = (
-      weights.prodigyModerate * prodigyScore +
-      weights.mewsModerate * mewsScore +
-      weights.thetaModerate
-    );
-    
-    // High Calc
-    const orsHigh = (
-      weights.prodigyHigh * prodigyScore +
-      weights.mewsHigh * mewsScore +
-      weights.thetaHigh
-    );
-  
-    let riskLevel = "";
-    if (orsModerate < 0) {
-      riskLevel = "Not at Risk";
-    } else {
-      // orsModerate > 0
-      if (orsHigh < 0) {
-        riskLevel = "Moderate Risk";
-      } else {
-        riskLevel = "High Risk";
-      }
+ // Mathematical boundary definitions
+ export const riskBoundaries = {
+  // Low-Medium boundary equation (purple to teal/yellow)
+  lowMediumBoundary: (mews) => {
+    if (mews <= 1.2) return 39; // Everything below MEWS≈1.2 is low risk
+    if (mews <= 2) {
+      // Steep curve from MEWS=1.2 to MEWS=2
+      const t = (mews - 1.2) / 0.8; // Normalized position between 1.2 and 2
+      return 39 - t * t * 18; // Quadratic curve drop
     }
     
-    return {
-      riskName: riskLevel,
-      probabilities: {
-        low: orsModerate < 0 ? 0.8 : 0.2,
-        moderate: (orsModerate >= 0 && orsHigh < 0) ? 0.7 : 0.2,
-        high: orsHigh >= 0 ? 0.9 : 0.1
-      }
-    };
+    // After MEWS=2, the boundary shifts to separate medium/high instead
+    return 3;
+  },
+  
+  // Medium-High boundary equation (teal to yellow)
+  mediumHighBoundary: (mews) => {
+    if (mews < 2) return 30; // Below MEWS=2, medium risk is a narrow band
+    
+    // Main curve between MEWS=2 and MEWS=3
+    if (mews <= 3) {
+      return 21 - 2 * (mews - 2) * (mews - 2);
+    }
+    
+    // Secondary curve between MEWS=3 and MEWS=4
+    if (mews <= 4) {
+      const t = (mews - 3) / 1;
+      return 17 - 5 * t;
+    }
+    
+    // Final curve between MEWS=4 and MEWS=5
+    if (mews <= 5) {
+      const t = (mews - 4) / 1;
+      return 12 - 7 * t;
+    }
+    
+    return 0; // Above MEWS=5, everything is high risk
+  },
+  
+  // Special medium risk regions (the isolated islands in the graph)
+  isInMediumIsland: (mews, prodigy) => {
+    // Island near MEWS=3
+    if (mews >= 2.7 && mews <= 3.3) {
+      const centerY = 7 + (mews - 3) * 8;
+      const height = 10 - Math.abs(mews - 3) * 5;
+      return (prodigy >= centerY - height/2) && (prodigy <= centerY + height/2);
+    }
+    
+    // Island near MEWS=4
+    if (mews >= 3.7 && mews <= 4.3) {
+      const centerY = 11 - (mews - 4) * 2;
+      const height = 8 - Math.abs(mews - 4) * 4;
+      return (prodigy >= centerY - height/2) && (prodigy <= centerY + height/2);
+    }
+    
+    // Island near MEWS=5
+    if (mews >= 4.7 && mews <= 5.3) {
+      const centerY = 5 - (mews - 5) * 2;
+      const height = 6 - Math.abs(mews - 5) * 3;
+      return (prodigy >= centerY - height/2) && (prodigy <= centerY + height/2);
+    }
+    
+    return false;
+  }
+};
+
+// Function to determine risk level given MEWS and PRODIGY scores
+export const getRiskLevel = (mews, prodigy) => {
+  // Check for medium risk islands first
+  if (riskBoundaries.isInMediumIsland(mews, prodigy)) {
+    return 'medium';
+  }
+  
+  // Main boundaries
+  if (mews <= 2) {
+    // For MEWS <= 2, use the low-medium boundary
+    if (prodigy <= riskBoundaries.lowMediumBoundary(mews)) {
+      return 'low';
+    } else {
+      return 'high'; // There's very little medium in this region
+    }
+  } else {
+    // For MEWS > 2
+    if (prodigy <= 3) { // The small low region that extends
+      return 'low';
+    } else if (prodigy <= riskBoundaries.mediumHighBoundary(mews)) {
+      return 'medium';
+    } else {
+      return 'high';
+    }
+  }
+};
+
+// Classification based on the updated mathematical boundaries
+export const classifyRisk = (mewsScore, prodigyScore) => {
+  // Ensure values are within bounds
+  const mews = Math.min(Math.max(mewsScore, 0), 6);
+  const prodigy = Math.min(Math.max(prodigyScore, 0), 39);
+  
+  // Get risk level using the boundary equations
+  const riskLevel = getRiskLevel(mews, prodigy);
+  
+  // Map the risk level to UI-friendly names
+  const riskNameMap = {
+    'low': 'Not at Risk',
+    'medium': 'Moderate Risk',
+    'high': 'High Risk'
   };
+  
+  // Calculate probability based on distance from boundaries and position
+  let probabilities = { low: 0, moderate: 0, high: 0 };
+  
+  if (riskLevel === 'low') {
+    // For low risk, calculate distance from boundary
+    let confidence;
+    
+    if (mews <= 1) {
+      // Far left region - very high confidence of low risk
+      confidence = 0.9;
+    } else if (mews <= 2) {
+      // Near the boundary - confidence based on distance
+      const boundaryY = riskBoundaries.lowMediumBoundary(mews);
+      const distance = Math.max(0, boundaryY - prodigy) / 10;
+      confidence = 0.7 + 0.2 * Math.min(1, distance);
+    } else {
+      // Extended low region - moderate confidence
+      confidence = 0.75;
+    }
+    
+    probabilities = {
+      low: confidence,
+      moderate: (1 - confidence) * 0.7,
+      high: (1 - confidence) * 0.3
+    };
+  } 
+  else if (riskLevel === 'medium') {
+    // For medium risk (including islands)
+    let mediumConfidence;
+    
+    if (riskBoundaries.isInMediumIsland(mews, prodigy)) {
+      // In medium islands - moderate confidence
+      mediumConfidence = 0.75;
+    } else {
+      // In main medium region - higher confidence
+      mediumConfidence = 0.85;
+    }
+    
+    probabilities = {
+      low: (1 - mediumConfidence) * 0.4,
+      moderate: mediumConfidence,
+      high: (1 - mediumConfidence) * 0.6
+    };
+  } 
+  else { // high risk
+    // For high risk - calculate confidence based on position
+    let confidence;
+    
+    if (mews >= 5 || prodigy >= 30) {
+      // Far right or top region - very high confidence
+      confidence = 0.9;
+    } else {
+      // Closer to boundary - moderate confidence
+      confidence = 0.75;
+    }
+    
+    probabilities = {
+      low: (1 - confidence) * 0.1,
+      moderate: (1 - confidence) * 0.5,
+      high: confidence
+    };
+  }
+  
+  // Normalize probabilities to ensure they sum to 1
+  const sum = probabilities.low + probabilities.moderate + probabilities.high;
+  probabilities.low = probabilities.low / sum;
+  probabilities.moderate = probabilities.moderate / sum;
+  probabilities.high = probabilities.high / sum;
+  
+  return {
+    riskName: riskNameMap[riskLevel],
+    probabilities
+  };
+};

@@ -4,8 +4,10 @@ import { Button } from './button.jsx';
 import { Card, CardContent, CardHeader, CardTitle } from './card.jsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Label } from 'recharts';
 import { Settings as SettingsIcon, Wifi } from 'lucide-react';
+import { ArrowLeftRight } from 'lucide-react';
 import Settings from './Settings.jsx';
 import { calculateProdigyScore, calculateMewsScore, classifyRisk } from '../../utils/RiskCalculator';
+import DecisionBoundaryVisualization from './DecisionBoundaryVisualization.jsx';
 import RiskStatus from './RiskStatus.jsx';
 import ApiService from '../../utils/ApiService';
 
@@ -21,6 +23,7 @@ const VitalSignsMonitor = () => {
   
   // Add state to track API connection status
   const [isApiConnected, setIsApiConnected] = useState(apiService.isConnected);
+  const [showBoundaryViz, setShowBoundaryViz] = useState(false);
 
   // Add state for settings view and patient data
   const [showSettings, setShowSettings] = useState(false);
@@ -250,6 +253,12 @@ const VitalSignsMonitor = () => {
       return { hr, br, time };
     });
   };
+  
+  // Add this function to toggle between visualizations
+  const toggleVisualization = () => {
+    setShowBoundaryViz(!showBoundaryViz);
+  };
+
   
   // Function to update data in real-time
   const updateData = () => {
@@ -928,56 +937,72 @@ const VitalSignsMonitor = () => {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            {/* Risk Score Graph */}
-            <div className="h-60">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={riskScoreData} margin={{ top: 5, right: 20, bottom: 25, left: 25 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis 
-                    dataKey="time" 
-                    domain={['dataMin', Math.max(10, riskScoreData.length > 0 ? riskScoreData[riskScoreData.length-1].time : 10)]}
-                    type="number"
-                    tickFormatter={(tick) => Math.max(0, tick).toFixed(0)}
-                  >
-                    <Label value="Time (s)" position="bottom" offset={10} />
-                  </XAxis>
-                  <YAxis 
-                    domain={[0, 100]} 
-                    ticks={[0, 25, 50, 75, 100]}
-                  >
-                    <Label 
-                      value="Risk Score (%)" 
-                      angle={-90} 
-                      position="insideLeft" 
-                      style={{ textAnchor: 'middle' }}
-                      offset={-10}
+            {/* Risk Score Graph or Decision Boundary Visualization */}
+            <div className="h-60 relative">
+              {/* Toggle button */}
+              <Button 
+                className="absolute top-0 right-0 z-10 p-1 m-2 bg-gray-700 hover:bg-gray-800 rounded-full"
+                onClick={toggleVisualization}
+                title={showBoundaryViz ? "Show Risk Score Graph" : "Show Decision Boundary"}
+              >
+                <ArrowLeftRight className="h-4 w-4 text-white" />
+              </Button>
+              
+              {showBoundaryViz ? (
+                // Decision Boundary Visualization
+                <div className="w-full h-full">
+                  <DecisionBoundaryVisualization 
+                    mewsScore={mewsScore} 
+                    prodigyScore={prodigyScore} 
+                  />
+                </div>
+              ) : (
+                // Risk Score Graph (original content)
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={riskScoreData} margin={{ top: 5, right: 20, bottom: 25, left: 25 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis 
+                      dataKey="time" 
+                      domain={['dataMin', Math.max(10, riskScoreData.length > 0 ? riskScoreData[riskScoreData.length-1].time : 10)]}
+                      type="number"
+                      tickFormatter={(tick) => Math.max(0, tick).toFixed(0)}
+                    >
+                      <Label value="Time (s)" position="bottom" offset={10} />
+                    </XAxis>
+                    <YAxis 
+                      domain={[0, 100]} 
+                      ticks={[0, 25, 50, 75, 100]}
+                    >
+                      <Label 
+                        value="Risk Score (%)" 
+                        angle={-90} 
+                        position="insideLeft" 
+                        style={{ textAnchor: 'middle' }}
+                        offset={-10}
+                      />
+                    </YAxis>
+                    <Line 
+                      type="monotone" 
+                      dataKey="value" 
+                      stroke="#FF9500" 
+                      strokeWidth={1.5}
+                      dot={false}
+                      isAnimationActive={false}
+                      name="Instant Risk"
                     />
-                  </YAxis>
-                  {/* Show both instant risk score and average risk score */}
-                  <Line 
-                    type="monotone" 
-                    dataKey="value" 
-                    stroke="#FF9500" 
-                    strokeWidth={1.5}
-                    dot={false}
-                    isAnimationActive={false}
-                    name="Instant Risk"
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="averageValue" 
-                    stroke="#FF3B30" 
-                    strokeWidth={2}
-                    dot={(props) => renderDot({...props, dataLength: riskScoreData.length, color: "#FF3B30"})}
-                    isAnimationActive={false}
-                    name="5-min average Risk"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-</div>
-            
-
-
+                    <Line 
+                      type="monotone" 
+                      dataKey="averageValue" 
+                      stroke="#FF3B30" 
+                      strokeWidth={2}
+                      dot={(props) => renderDot({...props, dataLength: riskScoreData.length, color: "#FF3B30"})}
+                      isAnimationActive={false}
+                      name="5-min average Risk"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+           </div>
           </CardContent>
         </Card>
       </div>
