@@ -82,6 +82,7 @@ def handle_client(client_sock):
 def get_vitals():
     with data_lock:
         response = jsonify(latest_data)
+        # print(response)
         # Add CORS headers explicitly
         response.headers.add('Access-Control-Allow-Origin', '*')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')

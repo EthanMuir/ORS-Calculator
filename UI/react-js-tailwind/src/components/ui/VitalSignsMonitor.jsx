@@ -27,6 +27,7 @@ const VitalSignsMonitor = () => {
 
   // Add state for settings view and patient data
   const [showSettings, setShowSettings] = useState(false);
+  const [isPatientDetected, setIsPatientDetected] = useState(true);
   const [patientData, setPatientData] = useState({
     age: 50,
     sex: "male",
@@ -106,85 +107,103 @@ const VitalSignsMonitor = () => {
 
   const handleApiData = (data) => {
     if (!shouldProcessApiDataRef.current) return;
+    
+    // Check if patient is detected - makes sure we properly parse the pd value
+    // Use console.log to verify the value is being received correctly
+    console.log("Patient detection value:", data.pd);
+    
+    // Convert to a number explicitly and check if it's negative
+    const patientDetected = data.pd !== undefined ? (Number(data.pd) >= 0) : true;
+    console.log("Patient detected state:", patientDetected);
+    
+    // Update state to track patient detection
+    setIsPatientDetected(patientDetected);
+    
     if (data.heartRate && data.breathRate) {
       // Get current time based on elapsed real time since monitoring started
       const now = Date.now();
       const elapsedSinceStart = now - lastUpdateTimeRef.current;
       const time = elapsedSinceStart / 1000; // Convert to seconds
       
-      // Add new data points
-      setHrData(prevData => {
-        const newData = [...prevData, { value: data.heartRate, time }];
-        if (newData.length > 100) {
-          return newData.slice(-100);
+      // Only update graphs if patient is detected
+      if (patientDetected) {
+        // Add new data points
+        setHrData(prevData => {
+          const newData = [...prevData, { value: data.heartRate, time }];
+          if (newData.length > 100) {
+            return newData.slice(-100);
+          }
+          return newData;
+        });
+        
+        setBrData(prevData => {
+          const newData = [...prevData, { value: data.breathRate, time }];
+          if (newData.length > 100) {
+            return newData.slice(-100);
+          }
+          return newData;
+        });
+        
+        // Calculate risk scores
+        const newProdigyScore = calculateProdigyScore(
+          patientData.age,
+          patientData.sex,
+          patientData.opioid_naive,
+          patientData.sdb,
+          patientData.chf
+        );
+        
+        const newMewsScore = calculateMewsScore(data.heartRate, data.breathRate);
+        const riskResult = classifyRisk(newMewsScore, newProdigyScore);
+        setProdigyScore(newProdigyScore);
+        setMewsScore(newMewsScore);
+        setRiskLevel(riskResult.riskName);
+  
+        const instantRiskScore = Math.max(
+          riskResult.probabilities.moderate * 50,
+          riskResult.probabilities.high * 100
+        );
+        
+        // Add to risk data
+        setRiskScoreData(prevData => {
+          // Create new data point
+          const newData = [...prevData, { 
+            value: instantRiskScore,
+            time,
+            averageValue: instantRiskScore // Start with same value, will update in next render
+          }];
+          
+          // Trim to 100 points if needed
+          const trimmedData = newData.length > 100 ? newData.slice(-100) : newData;
+          
+          // Calculate average for the latest point
+          const fiveMinutesAgo = Math.max(0, time - 300);
+          const recentScores = trimmedData
+            .filter(point => point.time >= fiveMinutesAgo && point.time <= time)
+            .map(point => point.value);
+          
+          const avgRiskScore = recentScores.length > 0 
+            ? recentScores.reduce((sum, val) => sum + val, 0) / recentScores.length
+            : instantRiskScore;
+          
+          // Update the average on the last point
+          if (trimmedData.length > 0) {
+            trimmedData[trimmedData.length - 1].averageValue = avgRiskScore;
+          }
+          
+          return trimmedData;
+        });
+  
+        // Update status based on vital signs
+        if (data.heartRate < HR_MIN_HEALTHY || data.heartRate > HR_MAX_HEALTHY || 
+            data.breathRate < BR_MIN_HEALTHY || data.breathRate > BR_MAX_HEALTHY) {
+          setStatus("AT RISK");
+        } else {
+          setStatus("NORMAL");
         }
-        return newData;
-      });
-      
-      setBrData(prevData => {
-        const newData = [...prevData, { value: data.breathRate, time }];
-        if (newData.length > 100) {
-          return newData.slice(-100);
-        }
-        return newData;
-      });
-      
-      // Calculate risk scores
-      const newProdigyScore = calculateProdigyScore(
-        patientData.age,
-        patientData.sex,
-        patientData.opioid_naive,
-        patientData.sdb,
-        patientData.chf
-      );
-      
-      const newMewsScore = calculateMewsScore(data.heartRate, data.breathRate);
-      const riskResult = classifyRisk(newMewsScore, newProdigyScore);
-      setProdigyScore(newProdigyScore);
-      setMewsScore(newMewsScore);
-      setRiskLevel(riskResult.riskName);
-
-      const instantRiskScore = Math.max(
-        riskResult.probabilities.moderate * 50,
-        riskResult.probabilities.high * 100
-      );
-      
-      // Add to risk data
-      setRiskScoreData(prevData => {
-        // Create new data point
-        const newData = [...prevData, { 
-          value: instantRiskScore,
-          time,
-          averageValue: instantRiskScore // Start with same value, will update in next render
-        }];
-        
-        // Trim to 100 points if needed
-        const trimmedData = newData.length > 100 ? newData.slice(-100) : newData;
-        
-        // Calculate average for the latest point
-        const fiveMinutesAgo = Math.max(0, time - 300);
-        const recentScores = trimmedData
-          .filter(point => point.time >= fiveMinutesAgo && point.time <= time)
-          .map(point => point.value);
-        
-        const avgRiskScore = recentScores.length > 0 
-          ? recentScores.reduce((sum, val) => sum + val, 0) / recentScores.length
-          : instantRiskScore;
-        
-        // Update the average on the last point
-        if (trimmedData.length > 0) {
-          trimmedData[trimmedData.length - 1].averageValue = avgRiskScore;
-        }
-        
-        return trimmedData;
-      });
-      
-      // Update status based on vital signs
-      if (data.heartRate < HR_MIN_HEALTHY || data.heartRate > HR_MAX_HEALTHY || 
-          data.breathRate < BR_MIN_HEALTHY || data.breathRate > BR_MAX_HEALTHY) {
-        setStatus("AT RISK");
       } else {
-        setStatus("NORMAL");
+        // If no patient is detected, set a specific status
+        setStatus("NOT DETECTED");
       }
       
       setCurrentTime(time);
@@ -207,6 +226,8 @@ const VitalSignsMonitor = () => {
     setHrData([]);
     setBrData([]);
     setRiskScoreData([]);
+
+    setIsPatientDetected(true);
     
     // Reset time and status
     timeRef.current = 0;
@@ -273,6 +294,9 @@ const VitalSignsMonitor = () => {
     
     // Generate new vital signs data
     const { hr, br } = generateRandomVitals(time);
+    
+    // In simulation mode, we'll always consider a patient is detected
+    setIsPatientDetected(true);
     
     if (isInitialRun.current) {
       // First data point - initialize with empty arrays
@@ -378,6 +402,7 @@ const VitalSignsMonitor = () => {
   // Start monitoring
   const startMonitoring = () => {
     resetMonitor();
+    setIsPatientDetected(true);
     lastUpdateTimeRef.current = Date.now(); // Set the start time
     setIsRunning(true); // Always set isRunning to true when monitoring starts
     shouldProcessApiDataRef.current = true; // Start processing API data
@@ -404,6 +429,7 @@ const VitalSignsMonitor = () => {
   
   // Run healthy simulation
   const runHealthySimulation = () => {
+    setIsPatientDetected(true);
     resetMonitor();
     stopMonitoring();
     setIsSimulating(true);
@@ -495,6 +521,7 @@ const VitalSignsMonitor = () => {
   
   // Run unhealthy simulation
   const runUnhealthySimulation = () => {
+    setIsPatientDetected(true);
     resetMonitor();
     stopMonitoring();
     setIsSimulating(true);
@@ -720,79 +747,85 @@ const VitalSignsMonitor = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow">
         {/* Left column - Controls and Status */}
         <div className="flex flex-col gap-4">
-          {/* Controls Card */}
-          <Card className="shadow-md">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xl">Controls</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="run" className="w-full">
-                <TabsList className="grid grid-cols-2 border-b border-gray-200 p-0 mb-4">
-                  <TabsTrigger 
-                    value="run" 
-                    className="inline-flex items-center justify-center whitespace-nowrap rounded-t-md px-4 py-2 text-sm font-medium transition-all border-b-2 border-transparent hover:text-foreground hover:border-gray-300 data-[state=active]:border-blue-500 data-[state=active]:text-foreground data-[state=active]:font-semibold"
-                  >
-                    Run
-                  </TabsTrigger>
-                  <TabsTrigger 
-                    value="sim"
-                    className="inline-flex items-center justify-center whitespace-nowrap rounded-t-md px-4 py-2 text-sm font-medium transition-all border-b-2 border-transparent hover:text-foreground hover:border-gray-300 data-[state=active]:border-blue-500 data-[state=active]:text-foreground data-[state=active]:font-semibold"
-                  >
-                    Sim
-                  </TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="run" className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <Button 
-                      className="bg-blue-500 hover:bg-blue-600 text-white py-2.5"
-                      onClick={startMonitoring}
-                      disabled={isRunning}
-                    >
-                      Start
-                    </Button>
-                    <Button 
-                      className="border border-red-300 text-red-500 bg-white hover:bg-red-50 py-2.5"
-                      onClick={stopMonitoring}
-                      disabled={!isRunning && !isApiMonitoring}
-                    >
-                      Stop
-                    </Button>
-                  </div>
-                </TabsContent>
-                
-                <TabsContent value="sim" className="space-y-4 mt-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <Button 
-                      className="bg-green-500 hover:bg-green-600 text-white py-2.5"
-                      onClick={runHealthySimulation}
-                    >
-                      Healthy Patient
-                    </Button>
-                    <Button 
-                      className="bg-amber-500 hover:bg-amber-600 text-white py-2.5"
-                      onClick={runUnhealthySimulation}
-                    >
-                      Declining Patient
-                    </Button>
-                  </div>
-                  <Button 
-                    className={`border border-red-300 text-red-500 bg-white hover:bg-red-50 w-full py-2.5 ${isSimulating ? '' : 'opacity-50'}`}
-                    onClick={stopSimulation}
-                  >
-                    Stop Simulation
-                  </Button>
-                </TabsContent>
-              </Tabs>
+        {/* Controls Card */}
+        <Card className="shadow-md">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xl">Controls</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="run" className="w-full">
+              <TabsList className="grid grid-cols-2 border-b border-gray-200 p-0 mb-4">
+                <TabsTrigger 
+                  value="run" 
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-t-md px-4 py-2 text-sm font-medium transition-all border-b-2 border-transparent hover:text-foreground hover:border-gray-300 data-[state=active]:border-blue-500 data-[state=active]:text-foreground data-[state=active]:font-semibold"
+                >
+                  Run
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="sim"
+                  className="inline-flex items-center justify-center whitespace-nowrap rounded-t-md px-4 py-2 text-sm font-medium transition-all border-b-2 border-transparent hover:text-foreground hover:border-gray-300 data-[state=active]:border-blue-500 data-[state=active]:text-foreground data-[state=active]:font-semibold"
+                >
+                  Sim
+                </TabsTrigger>
+              </TabsList>
               
-              {isApiConnected && (
-                <div className="flex items-center mt-4 text-green-500 text-sm border-t border-gray-100 pt-4">
-                  <Wifi className="h-4 w-4 mr-2" />
-                  <span>Sensor Connected</span>
+              <TabsContent value="run" className="space-y-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <Button 
+                    className="bg-blue-500 hover:bg-blue-600 text-white py-2.5"
+                    onClick={startMonitoring}
+                    disabled={isRunning}
+                  >
+                    Start
+                  </Button>
+                  <Button 
+                    className="border border-red-300 text-red-500 bg-white hover:bg-red-50 py-2.5"
+                    onClick={stopMonitoring}
+                    disabled={!isRunning && !isApiMonitoring}
+                  >
+                    Stop
+                  </Button>
                 </div>
-              )}
-            </CardContent>
-</Card>
+              </TabsContent>
+              
+              <TabsContent value="sim" className="space-y-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <Button 
+                    className="bg-green-500 hover:bg-green-600 text-white py-2.5"
+                    onClick={runHealthySimulation}
+                  >
+                    Healthy Patient
+                  </Button>
+                  <Button 
+                    className="bg-amber-500 hover:bg-amber-600 text-white py-2.5"
+                    onClick={runUnhealthySimulation}
+                  >
+                    Declining Patient
+                  </Button>
+                </div>
+                <Button 
+                  className={`border border-red-300 text-red-500 bg-white hover:bg-red-50 w-full py-2.5 ${isSimulating ? '' : 'opacity-50'}`}
+                  onClick={stopSimulation}
+                >
+                  Stop Simulation
+                </Button>
+              </TabsContent>
+            </Tabs>
+            
+            {isApiConnected && (
+              <div className="flex items-center mt-4 text-green-500 text-sm border-t border-gray-100 pt-4">
+                <Wifi className="h-4 w-4 mr-2" />
+                <span>Sensor Connected</span>
+              </div>
+            )}
+            {isApiConnected && (
+              <div className={`flex items-center mt-2 text-sm ${isPatientDetected ? 'text-green-500' : 'text-red-500'}`}>
+                <span className="h-3 w-3 rounded-full mr-2 bg-current"></span>
+                <span>{isPatientDetected ? 'Patient Detected' : 'No Patient Detected'}</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
           
           {/* Risk Status Card */}
           <RiskStatus 
@@ -810,11 +843,19 @@ const VitalSignsMonitor = () => {
               <div className="mt-4 text-sm text-gray-500">
                 <div className="flex justify-between mb-2">
                   <span>Heart Rate:</span>
-                  <span className="font-medium">{currentHR} bpm</span>
+                  {isPatientDetected ? (
+                    <span className="font-medium">{currentHR} bpm</span>
+                  ) : (
+                    <span className="font-medium text-red-500">No patient detected</span>
+                  )}
                 </div>
                 <div className="flex justify-between">
                   <span>Breathing Rate:</span>
-                  <span className="font-medium">{currentBR} brpm</span>
+                  {isPatientDetected ? (
+                    <span className="font-medium">{currentBR} brpm</span>
+                  ) : (
+                    <span className="font-medium text-red-500">No patient detected</span>
+                  )}
                 </div>
                 {isApiConnected && (
                   <div className="flex items-center justify-end mt-2 text-green-500 text-xs">
