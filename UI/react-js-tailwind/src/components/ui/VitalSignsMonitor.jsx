@@ -981,7 +981,7 @@ const VitalSignsMonitor = () => {
                         offset={-10}
                       />
                     </YAxis>
-                    <Line 
+                    {/* <Line 
                       type="monotone" 
                       dataKey="value" 
                       stroke="#FF9500" 
@@ -989,7 +989,7 @@ const VitalSignsMonitor = () => {
                       dot={false}
                       isAnimationActive={false}
                       name="Instant Risk"
-                    />
+                    /> */}
                     <Line 
                       type="monotone" 
                       dataKey="averageValue" 

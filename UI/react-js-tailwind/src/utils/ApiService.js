@@ -63,7 +63,8 @@ class ApiService {
         // Only process if data has changed or it's the first data point
         if (!this.lastData || 
             data.heartRate !== this.lastData.heartRate || 
-            data.breathRate !== this.lastData.breathRate) {
+            data.breathRate !== this.lastData.breathRate || 
+            data.pd !== this.lastData.pd) {
             
             this.lastData = data;
             

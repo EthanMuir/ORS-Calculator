@@ -13,6 +13,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 latest_data = {
     "heartRate": 70.5,
     "breathRate": 16.2,
+    "pd": -20,
     "timestamp": time.time() * 1000
 }
 
@@ -63,6 +64,7 @@ def handle_client(client_sock):
                     with data_lock:
                         latest_data["heartRate"] = json_data.get("heartRate", 0)
                         latest_data["breathRate"] = json_data.get("breathRate", 0)
+                        latest_data["pd"] = json_data.get("pd", 0)
                         latest_data["timestamp"] = json_data.get("timestamp", time.time() * 1000)
                     
                     print(f"Received data: {json_data}")
@@ -105,6 +107,7 @@ def simulate_data():
         with data_lock:
             latest_data["heartRate"] = data.get("heartRate", latest_data["heartRate"])
             latest_data["breathRate"] = data.get("breathRate", latest_data["breathRate"])
+            latest_data["pd"] = data.get("pd", latest_data["pd"])
             latest_data["timestamp"] = time.time() * 1000
         
         return jsonify({"status": "success", "data": latest_data})

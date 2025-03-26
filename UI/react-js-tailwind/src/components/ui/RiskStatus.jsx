@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './card.jsx';
 
-const RiskStatus = ({ riskLevel, prodigyScore, mewsScore }) => {
+const RiskStatus = ({ riskLevel,  prodigyScore, mewsScore, avgRisk}) => {
   // Determine risk color based on risk level
   const getRiskColor = () => {
     switch (riskLevel) {
@@ -28,6 +28,10 @@ const RiskStatus = ({ riskLevel, prodigyScore, mewsScore }) => {
         <CardTitle className="text-xl">Risk Assessment</CardTitle>
       </CardHeader>
       <CardContent>
+        <div className="flex justify-between items-center">
+          <span className="font-semibold text-lg">Alert Level:</span>
+          <span className={`font-bold text-xl ${avgRisk>0.6 ? "text-red-500" : "text-gray-500"}`}>{avgRisk>0.6 ? "ALERT" : "No Alert"}</span>
+        </div>
         <div className="flex justify-between items-center">
           <span className="font-semibold text-lg">Risk Level:</span>
           <span className={`font-bold text-xl ${riskColor}`}>{riskLevel}</span>
