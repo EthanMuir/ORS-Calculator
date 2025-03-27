@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, classification_report
+from matplotlib.colors import LinearSegmentedColormap
 
 # Define constants
 NUM_CLASSES = 3
@@ -92,13 +93,12 @@ def generate_synthetic_data(n_samples=10000):
         
     return np.column_stack((mews, prodigy)), labels
 
-def plot_decision_boundary(model, scaler, X_train, y_train):
-    """Plot the decision boundary of the model"""
+def plot_decision_boundary(model, scaler):
+    """Plot the decision boundary of the model with improved styling"""
     # Create mesh grid
-    h = 0.1  # step size
+    h = 0.01  # step size
     x_min, x_max = 0, 6
     y_min, y_max = 0, 39
-    
     xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
                          np.arange(y_min, y_max, h))
     
@@ -109,33 +109,59 @@ def plot_decision_boundary(model, scaler, X_train, y_train):
     Z = np.argmax(Z, axis=1)
     Z = Z.reshape(xx.shape)
     
-    # Plot the decision boundary
-    plt.figure(figsize=(10, 8))
-    plt.contourf(xx, yy, Z, alpha=0.8, cmap='viridis')
+    # Create a custom colormap for risk levels (green -> yellow -> red)
+    colors = [(0.196, 0.7098, 0.0078),    # dark green for low risk
+              (0.988, 0.753, 0.247),   # yellow for medium risk
+              (0.7098, 0.0431, 0.0078)]    # red for high risk
+    custom_cmap = LinearSegmentedColormap.from_list('risk_cmap', colors, N=3)
     
-    # Plot training points
-    colors = ['blue', 'orange', 'red']
-    for i in range(NUM_CLASSES):
-        idx = y_train == i
-        plt.scatter(X_train[idx, 0], X_train[idx, 1], 
-                    c=colors[i], edgecolors='k', label=f'Class {i}')
+    # Set up the plot with a light background
+    plt.figure(figsize=(10, 8), facecolor='none')
+    ax = plt.subplot(111)
+    ax.patch.set_alpha(0)  # Make subplot background transparent
     
-    plt.xlabel('MEWS Score')
-    plt.ylabel('PRODIGY Score')
-    plt.title('Risk Classification Decision Boundary')
-    plt.legend(['Low Risk', 'Medium Risk', 'High Risk'])
+    # Plot the decision boundary with the custom colormap
+    contour = plt.contourf(xx, yy, Z, alpha=0.9, cmap=custom_cmap, levels=np.arange(4)-0.5)
+    
+    # Improve grid styling
+    plt.grid(True, linestyle='--', alpha=0.3, color='gray')
+    
+    # Add labels and title with improved styling
+    plt.xlabel('MEWS Score', fontsize=12, fontweight='bold')
+    plt.ylabel('PRODIGY Score', fontsize=12, fontweight='bold')
+    plt.title('Risk Classification Decision Boundary', fontsize=16, fontweight='bold')
+    
+    # Add the reference boundaries with improved styling
+    plt.axvline(x=2.5, linestyle='--', color='white', alpha=0.8, linewidth=1.5)
+    plt.axvline(x=5.0, linestyle='--', color='white', alpha=0.8, linewidth=1.5)
+    plt.axhline(y=7.5, linestyle='--', color='white', alpha=0.8, linewidth=1.5)
+    plt.axhline(y=13.5, linestyle='--', color='white', alpha=0.8, linewidth=1.5)
+    
+    # Improve axes styling
     plt.xlim(x_min, x_max)
     plt.ylim(y_min, y_max)
+    ax.tick_params(colors='#333333', grid_alpha=0.3)
     
-    # Add the reference boundaries
-    plt.axvline(x=2.5, linestyle='--', color='gray', alpha=0.5)
-    plt.axvline(x=5.5, linestyle='--', color='gray', alpha=0.5)
-    plt.axhline(y=7.5, linestyle='--', color='gray', alpha=0.5)
-    plt.axhline(y=13.5, linestyle='--', color='gray', alpha=0.5)
+    # Add a legend with color swatches
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor=colors[0], label='Low Risk'),
+        Patch(facecolor=colors[1], label='Medium Risk'),
+        Patch(facecolor=colors[2], label='High Risk')
+    ]
+    plt.legend(handles=legend_elements, loc='upper right', framealpha=0.9)
     
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.colorbar(label='Risk Class')
-    plt.savefig('risk_decision_boundary.png')
+    # Add a colorbar with improved styling
+    cbar = plt.colorbar(contour, ticks=[0, 1, 2])
+    cbar.set_label('Risk Class', fontsize=10, fontweight='bold')
+    cbar.set_ticklabels(['Low', 'Medium', 'High'])
+    
+    # Add a subtle border around the plot
+    for spine in ax.spines.values():
+        spine.set_edgecolor('#dddddd')
+        
+    plt.tight_layout()
+    plt.savefig('risk_decision_boundary.png', dpi=300, bbox_inches='tight')
     plt.show()
 
 def train_and_evaluate_model():
@@ -290,24 +316,27 @@ def experiment_with_architectures():
 # MAIN EXECUTION
 print("Risk Classification Neural Network")
 print("Training the model...")
-model, scaler = train_and_evaluate_model()
+# model, scaler = train_and_evaluate_model()
 
 # Test with some example cases
-test_cases = [
-    (1, 5),    # Low MEWS, Low PRODIGY
-    (4, 10),   # Medium MEWS, Medium PRODIGY
-    (7, 15),   # High MEWS, High PRODIGY
-    (2, 12),   # Low MEWS, Medium PRODIGY
-    (6, 6),    # High MEWS, Low PRODIGY
-]
+# test_cases = [
+#     (1, 5),    # Low MEWS, Low PRODIGY
+#     (4, 10),   # Medium MEWS, Medium PRODIGY
+#     (7, 15),   # High MEWS, High PRODIGY
+#     (2, 12),   # Low MEWS, Medium PRODIGY
+#     (6, 6),    # High MEWS, Low PRODIGY
+# ]
 
-print("\nTest Cases:")
-for mews, prodigy in test_cases:
-    predict_risk(model, scaler, mews, prodigy)
-    print()
+# print("\nTest Cases:")
+# for mews, prodigy in test_cases:
+#     predict_risk(model, scaler, mews, prodigy)
+    # print()
 
 # Save the model for future use
-save_model(model, scaler)
+# save_model(model, scaler)
 
 # Uncomment the following line if you want to experiment with different architectures
 # experiment_with_architectures()
+
+model, scaler = load_model()
+plot_decision_boundary(model, scaler)
