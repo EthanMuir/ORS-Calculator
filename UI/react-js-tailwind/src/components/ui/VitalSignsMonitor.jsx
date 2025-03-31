@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './card.jsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Label } from 'recharts';
 import { Settings as SettingsIcon, Wifi } from 'lucide-react';
 import { ArrowLeftRight } from 'lucide-react';
+import { Bell, BellOff, AlertTriangle, AlertCircle } from 'lucide-react';
 import Settings from './Settings.jsx';
 import { calculateProdigyScore, calculateMewsScore, classifyRisk } from '../../utils/RiskCalculator';
 import DecisionBoundaryVisualization from './DecisionBoundaryVisualization.jsx';
@@ -15,6 +16,117 @@ import ApiService from '../../utils/ApiService';
 // Create a single instance of ApiService to share across the app
 const sharedApiService = new ApiService('http://localhost:5030');  // Updated to use correct port
 
+// Alert System class
+class AlertSystem {
+  constructor() {
+    this.currentAlertLevel = 0; // 0=none, 1=watch, 2=warning, 3=critical
+    this.lastAlertTime = 0;
+    this.alertSuppressed = false;
+    this.alertHistory = [];
+    this.sustainedRiskDuration = {
+      level1: 0,
+      level2: 0,
+      level3: 0
+    };
+    this.lastEvaluationTime = 0;
+  }
+  
+  // Modify the evaluateAlertState method in AlertSystem class
+  evaluateAlertState(currentRisk, vitalSigns, timestamp) {
+    // Skip evaluation if in suppression period
+    if (this.alertSuppressed) {
+      if (timestamp - this.lastAlertTime > 10) { // 10 seconds suppression
+        this.alertSuppressed = false;
+      } else {
+        return this.currentAlertLevel;
+      }
+    }
+    
+    // Determine base alert level from risk score
+    let newAlertLevel = 0;
+    if (currentRisk >= 90) {
+      this.sustainedRiskDuration.level3 += 1;
+      if (this.sustainedRiskDuration.level3 >= 3) newAlertLevel = 3; // Critical
+    } else {
+      this.sustainedRiskDuration.level3 = 0;
+    }
+    
+    if (currentRisk >= 75 && currentRisk < 90) {
+      this.sustainedRiskDuration.level2 += 1;
+      if (this.sustainedRiskDuration.level2 >= 5) newAlertLevel = Math.max(newAlertLevel, 2); // Warning
+    } else {
+      this.sustainedRiskDuration.level2 = 0;
+    }
+    
+    if (currentRisk >= 60 && currentRisk < 75) {
+      this.sustainedRiskDuration.level1 += 1;
+      if (this.sustainedRiskDuration.level1 >= 10) newAlertLevel = Math.max(newAlertLevel, 1); // Watch
+    } else {
+      this.sustainedRiskDuration.level1 = 0;
+    }
+    
+    // Check for severe vital sign abnormalities (override with critical)
+    const { hr, br } = vitalSigns;
+    if ((br !== undefined && (br <= 4 || br >= 35)) || 
+        (hr !== undefined && (hr <= 35 || hr >= 160))) {
+      newAlertLevel = 3;
+    }
+    
+    // Check for rapid increase trend (if we have history)
+    if (this.alertHistory.length > 15) { // 15 data points = 1.5 seconds in simulation
+      const riskShortTimeAgo = this.alertHistory[this.alertHistory.length - 15].risk;
+      if (currentRisk - riskShortTimeAgo > 15 && currentRisk >= 65) {
+        newAlertLevel = Math.max(newAlertLevel, 2); // Escalate to at least warning
+      }
+    }
+    
+    // Store history
+    this.alertHistory.push({
+      timestamp,
+      risk: currentRisk,
+      vitalSigns,
+      alertLevel: newAlertLevel
+    });
+    
+    // Trim history to last 30 seconds (300 data points)
+    if (this.alertHistory.length > 300) {
+      this.alertHistory = this.alertHistory.slice(-300);
+    }
+    
+    // STICKY ALERT - only escalate, never automatically decrease
+    // Only a manual acknowledgement can clear an alert
+    if (newAlertLevel > this.currentAlertLevel) {
+      // Escalating alert
+      this.currentAlertLevel = newAlertLevel;
+      this.lastAlertTime = timestamp;
+      this.alertSuppressed = false; // Ensure alert is visible when escalating
+    }
+    
+    return this.currentAlertLevel;
+  }
+    
+    // Reset alert state when explicitly acknowledged
+    acknowledgeAlert() {
+      this.alertSuppressed = true;
+      this.lastAlertTime = Date.now() / 1000; // Convert to seconds
+      return this.currentAlertLevel;
+    }
+    
+    // Reset the entire alert system state
+    reset() {
+      this.currentAlertLevel = 0;
+      this.lastAlertTime = 0;
+      this.alertSuppressed = false;
+      this.alertHistory = [];
+      this.sustainedRiskDuration = {
+        level1: 0,
+        level2: 0,
+        level3: 0
+      };
+      this.lastEvaluationTime = 0;
+    }
+  }
+
 const VitalSignsMonitor = () => {
   // Track whether monitoring has actually started
   const isInitialRun = useRef(true);  
@@ -24,6 +136,17 @@ const VitalSignsMonitor = () => {
   // Add state to track API connection status
   const [isApiConnected, setIsApiConnected] = useState(apiService.isConnected);
   const [showBoundaryViz, setShowBoundaryViz] = useState(false);
+
+  // Add state for alert system
+  const alertSystemRef = useRef(new AlertSystem());
+  const [alertLevel, setAlertLevel] = useState(0);
+  const [alertAcknowledged, setAlertAcknowledged] = useState(false);
+  const [alertSilenceDuration, setAlertSilenceDuration] = useState(0);
+  const [alertStartTime, setAlertStartTime] = useState(null);
+    
+  // Sound reference for alert system
+  const alertSoundRef = useRef(null);
+  const [alertSound, setAlertSound] = useState(null);
 
   // Add state for settings view and patient data
   const [showSettings, setShowSettings] = useState(false);
@@ -104,6 +227,35 @@ const VitalSignsMonitor = () => {
       clearInterval(intervalId);
     };
   }, [apiService]);
+
+  // Add this useEffect to initialize the sound
+  useEffect(() => {
+    // Create audio objects for different alert levels
+    const criticalSound = new Audio('/beepboppp.mp3'); // Replace with actual path
+    const warningSound = new Audio('/path/to/warning-alert.mp3');   // Replace with actual path
+    const watchSound = new Audio('/path/to/watch-alert.mp3');       // Replace with actual path
+    
+    // Set looping for continuous sound until acknowledged
+    criticalSound.loop = true;
+    warningSound.loop = true;
+    watchSound.loop = true;
+    
+    // Store them in state
+    setAlertSound({
+      critical: criticalSound,
+      warning: warningSound,
+      watch: watchSound
+    });
+    
+    // Cleanup when component unmounts
+    return () => {
+      if (alertSound) {
+        alertSound.critical.pause();
+        alertSound.warning.pause();
+        alertSound.watch.pause();
+      }
+    };
+  }, []);
 
   const handleApiData = (data) => {
     if (!shouldProcessApiDataRef.current) return;
@@ -228,7 +380,11 @@ const VitalSignsMonitor = () => {
     setRiskScoreData([]);
 
     setIsPatientDetected(true);
-    
+    alertSystemRef.current.reset();
+    setAlertLevel(0);
+    setAlertAcknowledged(false);
+    setAlertStartTime(null);
+
     // Reset time and status
     timeRef.current = 0;
     setCurrentTime(0);
@@ -271,6 +427,112 @@ const VitalSignsMonitor = () => {
       const decline = Math.min(1, time / 30) * 50;
       const hr = Math.max(30, 70 + Math.sin(time * 0.2) * 10 - decline + Math.random() * 5);
       const br = Math.max(6, 16 + Math.sin(time * 0.1) * 3 - decline/3 + Math.random() * 2);
+      return { hr, br, time };
+    });
+  };
+
+  // Heart attack simulation
+// More severe heart attack simulation
+const generateHeartAttackSimulation = () => {
+  return Array(300).fill().map((_, i) => {
+    const time = i / 10;
+    let hr, br;
+    
+    // Phase 1: Initial symptoms (0-8s) - increasing heart rate
+    if (time < 8) {
+      hr = 70 + (time * 7) + Math.random() * 5; // Rapidly increase to ~125
+      br = 16 + (time * 1.5) + Math.random() * 2; // Rapidly increase to ~28
+    } 
+    // Phase 2: Acute phase (8-15s) - extremely rapid HR, high BR
+    else if (time < 15) {
+      hr = 125 + Math.sin(time * 0.8) * 20 + Math.random() * 15; // Fluctuating up to 160 
+      br = 28 + Math.sin(time * 0.4) * 5 + Math.random() * 3; // Very high breathing rate ~35
+    } 
+    // Phase 3: Critical phase (15-30s) - severe irregularity and dramatic drops
+    else {
+      // Create more extreme irregular heartbeat pattern with sudden dramatic drops
+      const irregularity = Math.sin(time * 3) * 30 + Math.cos(time * 8) * 25;
+      
+      if ((time > 20 && time < 22) || (time > 25 && time < 27)) {
+        // Simulate dangerous arrhythmia episodes with very low heart rate
+        hr = Math.max(30, 40 + irregularity/3 + Math.random() * 10);
+      } else {
+        const decline = Math.min(70, (time - 15) * 3.5);
+        hr = Math.max(35, 135 - decline + irregularity + Math.random() * 5);
+      }
+      
+      // Breathing becomes increasingly labored and irregular
+      br = Math.max(8, 30 - ((time - 15) * 0.8) + Math.sin(time * 0.5) * 12 + Math.random() * 5);
+    }
+    
+    return { hr, br, time };
+  });
+};
+
+  // Respiratory depression simulation
+// Modified respiratory depression simulation with more severe values
+const generateRespiratoryDepressionSimulation = () => {
+  return Array(300).fill().map((_, i) => {
+    const time = i / 10;
+    let hr, br;
+    
+    // Phase 1: Initial symptoms (0-8s) - mild depression
+    if (time < 8) {
+      hr = 70 + Math.sin(time * 0.2) * 5 + Math.random() * 3; // Normal HR
+      br = Math.max(8, 16 - (time * 0.3) + Math.sin(time * 0.1) * 2 + Math.random() * 1); // Gradually decreasing
+    } 
+    // Phase 2: Moderate depression (8-15s)
+    else if (time < 15) {
+      hr = Math.max(50, 70 - ((time - 8) * 1.5) + Math.sin(time * 0.2) * 5 + Math.random() * 3); // HR starts to slow more rapidly
+      br = Math.max(5, 13 - ((time - 8) * 0.6) + Math.sin(time * 0.1) * 1 + Math.random() * 1); // Further decreasing
+    } 
+    // Phase 3: Severe depression (15-30s) - extended critical phase
+    else {
+      hr = Math.max(35, 55 - ((time - 15) * 0.6) + Math.sin(time * 0.2) * 3 + Math.random() * 2); // Very slow HR
+      br = Math.max(2, 7 - ((time - 15) * 0.3) + Math.sin(time * 0.1) * 0.5 + Math.random() * 0.5); // Critically low BR for longer
+    }
+    
+    return { hr, br, time };
+  });
+};
+
+  // Sleep apnea simulation
+  const generateSleepApneaSimulation = () => {
+    return Array(300).fill().map((_, i) => {
+      const time = i / 10;
+      let hr, br;
+      
+      // Create a cyclic pattern to simulate apnea episodes
+      const cyclePosition = (time % 10) / 10; // Repeating 10-second cycles
+      
+      // Normal breathing phase (first 60% of cycle)
+      if (cyclePosition < 0.6) {
+        hr = 70 + Math.sin(time * 0.2) * 5 + Math.random() * 3;
+        br = 14 + Math.sin(time * 0.3) * 2 + Math.random() * 2;
+      }
+      // Apnea episode (next 30% of cycle)
+      else if (cyclePosition < 0.9) {
+        // During apnea, breathing rate drops to near zero
+        br = Math.max(0, 2 + Math.random() * 2); 
+        
+        // Heart rate initially stays normal, then drops, then spikes at end of episode
+        const apneaProgress = (cyclePosition - 0.6) / 0.3; // 0 to 1 through the apnea
+        
+        if (apneaProgress < 0.5) {
+          // First half of apnea: HR gradually decreases
+          hr = 70 - (apneaProgress * 15) + Math.random() * 3;
+        } else {
+          // Second half of apnea: HR begins to rise back up
+          hr = 55 + ((apneaProgress - 0.5) * 30) + Math.random() * 3;
+        }
+      }
+      // Recovery from episode (last 10% of cycle)
+      else {
+        // Quick arousal - breathing resumes, heart rate spikes briefly
+        br = 16 + Math.random() * 4;
+        hr = 85 - ((cyclePosition - 0.9) * 150) + Math.random() * 5; // Starts high, returns to baseline
+      }
+      
       return { hr, br, time };
     });
   };
@@ -349,6 +611,14 @@ const VitalSignsMonitor = () => {
       const avgRiskScore = recentScores.length > 0 
         ? recentScores.reduce((sum, val) => sum + val, 0) / recentScores.length
         : instantRiskScore;
+
+      // Evaluate alert state
+      const currentAlertLevel = alertSystemRef.current.evaluateAlertState(
+        avgRiskScore,
+        { hr, br },
+        time
+      );
+      setAlertLevel(currentAlertLevel);
       
       // Update the average on the last point
       if (trimmedData.length > 0) {
@@ -375,7 +645,124 @@ const VitalSignsMonitor = () => {
     }
   };
 
-  
+  // Helper function to run a simulation sequence with given data
+  const runSimulationSequence = (simulation) => {
+    let index = 0;
+    let accumulatedData = { hr: [], br: [], risk: [] };
+    
+    const runSimulation = () => {
+      if (index < simulation.length) {
+        const { hr, br, time } = simulation[index];
+        
+        // Add to accumulated data
+        accumulatedData.hr.push({ value: hr, time });
+        accumulatedData.br.push({ value: br, time });
+      
+        // Update state with all accumulated data
+        setHrData([...accumulatedData.hr]);
+        setBrData([...accumulatedData.br]);
+
+        // Calculate risk scores
+        const newProdigyScore = calculateProdigyScore(
+          patientData.age,
+          patientData.sex,
+          patientData.opioid_naive,
+          patientData.sdb,
+          patientData.chf
+        );
+
+        const newMewsScore = calculateMewsScore(hr, br);
+        const riskResult = classifyRisk(newMewsScore, newProdigyScore);
+        setProdigyScore(newProdigyScore);
+        setMewsScore(newMewsScore);
+        setRiskLevel(riskResult.riskName);
+
+        const instantRiskScore = Math.max(
+          riskResult.probabilities.moderate * 50,
+          riskResult.probabilities.high * 100
+        );
+        
+        // Add to risk data
+        setRiskScoreData(prevData => {
+          // Create new data point
+          const newData = [...prevData, { 
+            value: instantRiskScore,
+            time,
+            averageValue: instantRiskScore // Start with same value, will update in next render
+          }];
+          
+          // Trim to 100 points if needed
+          const trimmedData = newData.length > 100 ? newData.slice(-100) : newData;
+          
+          // Calculate average for the latest point
+          const fiveMinutesAgo = Math.max(0, time - 300);
+          const recentScores = trimmedData
+            .filter(point => point.time >= fiveMinutesAgo && point.time <= time)
+            .map(point => point.value);
+          
+          const avgRiskScore = recentScores.length > 0 
+            ? recentScores.reduce((sum, val) => sum + val, 0) / recentScores.length
+            : instantRiskScore;
+
+          // Evaluate alert state
+          const currentAlertLevel = alertSystemRef.current.evaluateAlertState(
+            avgRiskScore,
+            { hr, br },
+            time
+          );
+          setAlertLevel(currentAlertLevel);
+          
+          // Update the average on the last point
+          if (trimmedData.length > 0) {
+            trimmedData[trimmedData.length - 1].averageValue = avgRiskScore;
+          }
+          
+          return trimmedData;
+        });
+
+        // Update status
+        if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
+            br < BR_MIN_HEALTHY || br > BR_MAX_HEALTHY) {
+          setStatus("AT RISK");
+        } else {
+          setStatus("NORMAL");
+        }
+        
+        setCurrentTime(time);
+        index++;
+        simulationTimeoutRef.current = setTimeout(runSimulation, 100);
+      } else {
+        setIsSimulating(false);
+      }
+    };
+    
+    // Start simulation
+    runSimulation();
+  };
+  // Modify the alert level effect to play sounds
+  useEffect(() => {
+    // Reset alert start time when level changes from 0
+    if (alertLevel > 0 && !alertStartTime) {
+      setAlertStartTime(Date.now());
+    } else if (alertLevel === 0) {
+      setAlertStartTime(null);
+    }
+    
+    // Play appropriate sound based on alert level
+    if (alertSound) {
+      // Stop all sounds first
+      alertSound.critical.pause();
+      alertSound.warning.pause();
+      alertSound.watch.pause();
+      
+      // Play the appropriate sound if not acknowledged
+      if (!alertAcknowledged) {
+        if (alertLevel === 3) alertSound.critical.play();
+        else if (alertLevel === 2) alertSound.warning.play();
+        else if (alertLevel === 1) alertSound.watch.play();
+      }
+    }
+  }, [alertLevel, alertAcknowledged, alertSound]);
 
   // Effect to handle animation starting/stopping
   useEffect(() => {
@@ -434,89 +821,7 @@ const VitalSignsMonitor = () => {
     stopMonitoring();
     setIsSimulating(true);
     const simulation = generateHealthySimulation();
-    let index = 0;
-    let accumulatedData = { hr: [], br: [], risk: [] };
-    
-    const runSimulation = () => {
-      if (index < simulation.length) {
-        const { hr, br, time } = simulation[index];
-        
-        // Add to accumulated data
-        accumulatedData.hr.push({ value: hr, time });
-        accumulatedData.br.push({ value: br, time });
-      
-        // Update state with all accumulated data
-        setHrData([...accumulatedData.hr]);
-        setBrData([...accumulatedData.br]);
-
-        // Calculate risk scores
-        const newProdigyScore = calculateProdigyScore(
-          patientData.age,
-          patientData.sex,
-          patientData.opioid_naive,
-          patientData.sdb,
-          patientData.chf
-        );
-
-        const newMewsScore = calculateMewsScore(hr, br);
-        const riskResult = classifyRisk(newMewsScore, newProdigyScore);
-        setProdigyScore(newProdigyScore);
-        setMewsScore(newMewsScore);
-        setRiskLevel(riskResult.riskName);
-
-        const instantRiskScore = Math.max(
-          riskResult.probabilities.moderate * 50,
-          riskResult.probabilities.high * 100
-        );
-        
-        // Add to risk data
-        setRiskScoreData(prevData => {
-          // Create new data point
-          const newData = [...prevData, { 
-            value: instantRiskScore,
-            time,
-            averageValue: instantRiskScore // Start with same value, will update in next render
-          }];
-          
-          // Trim to 100 points if needed
-          const trimmedData = newData.length > 100 ? newData.slice(-100) : newData;
-          
-          // Calculate average for the latest point
-          const fiveMinutesAgo = Math.max(0, time - 300);
-          const recentScores = trimmedData
-            .filter(point => point.time >= fiveMinutesAgo && point.time <= time)
-            .map(point => point.value);
-          
-          const avgRiskScore = recentScores.length > 0 
-            ? recentScores.reduce((sum, val) => sum + val, 0) / recentScores.length
-            : instantRiskScore;
-          
-          // Update the average on the last point
-          if (trimmedData.length > 0) {
-            trimmedData[trimmedData.length - 1].averageValue = avgRiskScore;
-          }
-          
-          return trimmedData;
-        });
-
-        // Update status
-        if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
-            br < BR_MIN_HEALTHY || br > BR_MAX_HEALTHY) {
-          setStatus("AT RISK");
-        } else {
-          setStatus("NORMAL");
-        }
-        
-        setCurrentTime(time);
-        index++;
-        simulationTimeoutRef.current = setTimeout(runSimulation, 100);
-      }else {
-        setIsSimulating(false);
-      }
-    };
-    
-    // Reset time reference and start simulation
-    runSimulation();
+    runSimulationSequence(simulation);
   };
   
   // Run unhealthy simulation
@@ -526,89 +831,37 @@ const VitalSignsMonitor = () => {
     stopMonitoring();
     setIsSimulating(true);
     const simulation = generateUnhealthySimulation();
-    let index = 0;
-    let accumulatedData = { hr: [], br: [], risk: [] };
-    
-    const runSimulation = () => {
-      if (index < simulation.length) {
-        const { hr, br, time } = simulation[index];
-        
-        // Add to accumulated data
-        accumulatedData.hr.push({ value: hr, time });
-        accumulatedData.br.push({ value: br, time });
-        
-        // Update state with all accumulated data
-        setHrData([...accumulatedData.hr]);
-        setBrData([...accumulatedData.br]);
+    runSimulationSequence(simulation);
+  };
 
-        // Calculate risk scores
-        const newProdigyScore = calculateProdigyScore(
-          patientData.age,
-          patientData.sex,
-          patientData.opioid_naive,
-          patientData.sdb,
-          patientData.chf
-        );
+  // Run heart attack simulation
+  const runHeartAttackSimulation = () => {
+    setIsPatientDetected(true);
+    resetMonitor();
+    stopMonitoring();
+    setIsSimulating(true);
+    const simulation = generateHeartAttackSimulation();
+    runSimulationSequence(simulation);
+  };
 
-        const newMewsScore = calculateMewsScore(hr, br);
-        const riskResult = classifyRisk(newMewsScore, newProdigyScore);
-        setProdigyScore(newProdigyScore);
-        setMewsScore(newMewsScore);
-        setRiskLevel(riskResult.riskName);
+  // Run respiratory depression simulation
+  const runRespiratoryDepressionSimulation = () => {
+    setIsPatientDetected(true);
+    resetMonitor();
+    stopMonitoring();
+    setIsSimulating(true);
+    const simulation = generateRespiratoryDepressionSimulation();
+    runSimulationSequence(simulation);
+  };
 
-        const instantRiskScore = Math.max(
-          riskResult.probabilities.moderate * 50,
-          riskResult.probabilities.high * 100
-        );
-        
-        // Add to risk data
-        setRiskScoreData(prevData => {
-          // Create new data point
-          const newData = [...prevData, { 
-            value: instantRiskScore,
-            time,
-            averageValue: instantRiskScore // Start with same value, will update in next render
-          }];
-          
-          // Trim to 100 points if needed
-          const trimmedData = newData.length > 100 ? newData.slice(-100) : newData;
-          
-          // Calculate average for the latest point
-          const fiveMinutesAgo = Math.max(0, time - 300);
-          const recentScores = trimmedData
-            .filter(point => point.time >= fiveMinutesAgo && point.time <= time)
-            .map(point => point.value);
-          
-          const avgRiskScore = recentScores.length > 0 
-            ? recentScores.reduce((sum, val) => sum + val, 0) / recentScores.length
-            : instantRiskScore;
-          
-          // Update the average on the last point
-          if (trimmedData.length > 0) {
-            trimmedData[trimmedData.length - 1].averageValue = avgRiskScore;
-          }
-          
-          return trimmedData;
-        });
-
-        // Update status
-        if (hr < HR_MIN_HEALTHY || hr > HR_MAX_HEALTHY || 
-            br < BR_MIN_HEALTHY || br > BR_MAX_HEALTHY) {
-          setStatus("AT RISK");
-        } else {
-          setStatus("NORMAL");
-        }
-        
-        setCurrentTime(time);
-        index++;
-        simulationTimeoutRef.current = setTimeout(runSimulation, 100);
-      }else {
-        setIsSimulating(false);
-      }
-    };
-    
-    // Reset time reference and start simulation
-    runSimulation();
+  // Run sleep apnea simulation
+  const runSleepApneaSimulation = () => {
+    setIsPatientDetected(true);
+    resetMonitor();
+    stopMonitoring();
+    setIsSimulating(true);
+    const simulation = generateSleepApneaSimulation();
+    runSimulationSequence(simulation);
   };
   
   // Determine status color
@@ -716,6 +969,76 @@ const VitalSignsMonitor = () => {
     return calculateAverage(recentScores);
   };
 
+  // Helper function to calculate average of array values
+  const calculateAverage = (values) => {
+    if (!values || values.length === 0) return 0;
+    return values.reduce((sum, val) => sum + val, 0) / values.length;
+  };
+
+  // Calculate time since alert started
+  const getAlertDuration = () => {
+    if (!alertStartTime) return 0;
+    return Math.floor((Date.now() - alertStartTime) / 1000);
+  };
+
+  // Function to acknowledge the current alert
+  const acknowledgeAlert = () => {
+    // Use the AlertSystem's acknowledge function
+    alertSystemRef.current.acknowledgeAlert();
+    setAlertAcknowledged(true);
+    
+    // Stop all sounds
+    if (alertSound) {
+      alertSound.critical.pause();
+      alertSound.warning.pause();
+      alertSound.watch.pause();
+    }
+    
+    // This will keep the alert suppressed for 10 seconds (as defined in AlertSystem)
+    // After which, if conditions are still alert-worthy, it will reappear
+  };
+
+  // Function to get alert class for styling based on alert level
+  const getAlertClass = () => {
+    switch (alertLevel) {
+      case 1:
+        return "bg-yellow-100 border-yellow-400 text-yellow-800"; // Watch
+      case 2:
+        return "bg-orange-100 border-orange-400 text-orange-800"; // Warning
+      case 3:
+        return "bg-red-100 border-red-400 text-red-800"; // Critical
+      default:
+        return "hidden"; // No alert
+    }
+  };
+    
+  // Function to get alert icon based on alert level
+  const getAlertIcon = () => {
+    switch (alertLevel) {
+      case 1:
+        return <AlertCircle className="h-5 w-5 text-yellow-500 mr-2" />; // Watch
+      case 2:
+        return <AlertTriangle className="h-5 w-5 text-orange-500 mr-2" />; // Warning
+      case 3:
+        return <AlertTriangle className="h-5 w-5 text-red-500 mr-2" />; // Critical
+      default:
+        return null; // No alert
+    }
+  };
+    
+  // Function to get alert text based on alert level
+  const getAlertText = () => {
+    switch (alertLevel) {
+      case 1:
+        return "Watch - Patient may be at risk"; 
+      case 2:
+        return "Warning - Patient requires attention";
+      case 3:
+        return "CRITICAL - Immediate intervention needed";
+      default:
+        return "";
+    }
+  };
   
   // If showing settings, render the Settings component
   if (showSettings) {
@@ -743,7 +1066,36 @@ const VitalSignsMonitor = () => {
         <h1 className="text-2xl font-bold text-center text-gray-800">Vital Signs Monitor</h1>
         <div className="w-8"></div> {/* Empty div for spacing */}
       </div>
-      
+      {/* Alert Banner - shows only when alert level > 0 */}
+      {alertLevel > 0 && (
+        <div className={`mb-4 p-3 border rounded-md flex items-center justify-between transition-opacity duration-300 ${
+          alertLevel > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        } ${getAlertClass()}`}>
+          <div className="flex items-center">
+            {getAlertIcon()}
+            <div>
+              <div className="font-bold">{getAlertText()}</div>
+              <div className="text-sm">
+                Alert active for: {getAlertDuration()} seconds
+              </div>
+            </div>
+          </div>
+          <Button 
+            className={`px-2 py-1 ${alertAcknowledged ? 'bg-gray-300' : 'bg-white'}`}
+            onClick={acknowledgeAlert}
+            disabled={alertAcknowledged}
+          >
+            {alertAcknowledged ? (
+              <BellOff className="h-4 w-4 text-gray-500" />
+            ) : (
+              <Bell className="h-4 w-4 text-gray-700" />
+            )}
+            <span className="ml-1 text-xs">
+              {alertAcknowledged ? 'Silenced' : 'Acknowledge'}
+            </span>
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow">
         {/* Left column - Controls and Status */}
         <div className="flex flex-col gap-4">
@@ -803,6 +1155,29 @@ const VitalSignsMonitor = () => {
                     Declining Patient
                   </Button>
                 </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <Button 
+                    className="bg-red-500 hover:bg-red-600 text-white py-2.5"
+                    onClick={runHeartAttackSimulation}
+                  >
+                    Heart Attack
+                  </Button>
+                  <Button 
+                    className="bg-indigo-500 hover:bg-indigo-600 text-white py-2.5"
+                    onClick={runRespiratoryDepressionSimulation}
+                  >
+                    Respiratory Depression
+                  </Button>
+                </div>
+                
+                {/* <Button 
+                  className="bg-purple-500 hover:bg-purple-600 text-white w-full py-2.5"
+                  onClick={runSleepApneaSimulation}
+                >
+                  Sleep Apnea
+                </Button> */}
+                
                 <Button 
                   className={`border border-red-300 text-red-500 bg-white hover:bg-red-50 w-full py-2.5 ${isSimulating ? '' : 'opacity-50'}`}
                   onClick={stopSimulation}
@@ -832,6 +1207,8 @@ const VitalSignsMonitor = () => {
             riskLevel={riskLevel} 
             prodigyScore={prodigyScore} 
             mewsScore={mewsScore} 
+            avgRisk={riskScoreData.length > 0 ? riskScoreData[riskScoreData.length-1].averageValue / 100 : 0}
+            currentAlertLevel={alertLevel} // Add this prop if you want to ensure exact match with banner
           />
 
           {/* Vital Signs Card */}
