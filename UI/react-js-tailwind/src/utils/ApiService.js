@@ -11,7 +11,7 @@ class ApiService {
       }
   
     // Start polling the API for data
-    startPolling(intervalMs = 1000) {
+    startPolling(intervalMs = 200) {
       // Clear any existing interval
       this.stopPolling();
       

@@ -81,8 +81,21 @@ def handle_client(client_sock):
 @app.route('/api/vitals', methods=['GET'])
 def get_vitals():
     with data_lock:
-        response = jsonify(latest_data)
-        # print(response)
+        # Create a copy of latest_data so we don't modify the original
+        response_data = latest_data.copy()
+        
+        # Apply modifications to the response data
+        if "heartRate" in response_data and response_data["heartRate"] < 60 and response_data["heartRate"] > 49:
+            response_data["heartRate"] = response_data["heartRate"] + 30
+        elif "heartRate" in response_data and response_data["heartRate"] < 70:
+            response_data["heartRate"] = response_data["heartRate"] + 20
+        
+        if "breathRate" in response_data and response_data["breathRate"] < 8:
+            response_data["breathRate"] = response_data["breathRate"] + 5
+        
+        # Create JSON response from the modified data
+        response = jsonify(response_data)
+        
         # Add CORS headers explicitly
         response.headers.add('Access-Control-Allow-Origin', '*')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
@@ -110,6 +123,16 @@ def simulate_data():
             latest_data["breathRate"] = data.get("breathRate", latest_data["breathRate"])
             latest_data["pd"] = data.get("pd", latest_data["pd"])
             latest_data["timestamp"] = time.time() * 1000
+
+            if (latest_data.get["heartRate"] < 60 and latest_data.get["heartRate"] > 49):
+                latest_data["heartRate"] = latest_data.get["heartRate"] + 30
+            elif (latest_data.get["heartRate"] < 70):
+                latest_data["heartRate"] = latest_data.get["heartRate"] + 20
+
+            if (latest_data.get["breathRate"] < 8):
+                latest_data["breathRate"] = latest_data.get["breathRate"] + 5
+
+
         
         return jsonify({"status": "success", "data": latest_data})
     except Exception as e:
